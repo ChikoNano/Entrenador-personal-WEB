@@ -915,3 +915,34 @@ summary {
   }
 
 }
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+@media (max-width: 768px) {
+  body {
+    width: 100%;
+    overflow-x: hidden;
+  }
+
+  .container,
+  .exercise-layout,
+  .dashboard-page {
+    max-width: 94vw;
+    overflow-x: hidden;
+  }
+
+  .btn-row,
+  .routine-footer,
+  .admin-tabs {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  #btnLogout {
+    max-width: 120px;
+  }
+}
