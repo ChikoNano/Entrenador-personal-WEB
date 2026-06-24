@@ -946,3 +946,23 @@ body {
     max-width: 120px;
   }
 }
+.therapy-card {
+  text-align: center;
+  padding: 1.5rem;
+  border-radius: 20px;
+
+  background: rgba(0,0,0,.45);
+  backdrop-filter: blur(12px);
+
+  border: 1px solid rgba(255,196,0,.25);
+}
+
+.therapy-card h2 {
+  color: #ffc400;
+  margin-bottom: 1rem;
+}
+
+.therapy-info {
+  margin: 1rem 0;
+  line-height: 1.8;
+}

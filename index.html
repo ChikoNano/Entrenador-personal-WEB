@@ -445,15 +445,36 @@
 
 </div>
   <!-- FISIOTERAPIA -->
-  <div class="container hidden" id="physioPage">
-    <h1 class="title">Fisioterapia</h1>
-    <p>Recuperación, prevención y rendimiento físico.</p>
-    <button class="btn" onclick="alert('Agenda tu cita por WhatsApp')">Agendar cita</button>
+  <!-- FISIOTERAPIA -->
+<div class="container hidden" id="physioPage">
+  <h1 class="title">Terapias</h1>
 
-    <div class="btn-row">
-      <button class="btn" id="btnBackToExercises">Anterior</button>
+  <div class="therapy-card">
+    <h2>Fisioterapia y Rehabilitación</h2>
+
+    <p>
+      Agenda una valoración o solicita información sobre fisioterapia,
+      rehabilitación y recuperación física.
+    </p>
+
+    <div class="therapy-info">
+      <p><strong>Horario:</strong></p>
+      <p>Lunes a Viernes</p>
+      <p>10:00 AM - 6:00 PM</p>
+
+      <p><strong>WhatsApp:</strong></p>
+      <p>55 1242 3002</p>
     </div>
+
+    <button class="btn" onclick="contactTherapy()">
+      Solicitar información
+    </button>
   </div>
+
+  <div class="btn-row">
+    <button class="btn" id="btnBackToExercises">Anterior</button>
+  </div>
+</div>
 
   <!-- JS PRINCIPAL -->
   <script src="app.js"></script>

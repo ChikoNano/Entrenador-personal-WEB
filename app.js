@@ -1153,6 +1153,18 @@ if (Array.isArray(users)) {
   }
 }
 
+function contactTherapy() {
+
+  const message = encodeURIComponent(
+    "Hola, me interesa agendar una terapia o saber información sobre los servicios disponibles."
+  );
+
+  window.open(
+    "https://wa.me/525512423002?text=" + message,
+    "_blank"
+  );
+}
+
 /* INICIO */
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -1166,6 +1178,12 @@ document.addEventListener("DOMContentLoaded", () => {
 if ($("cardProfile")) {
   $("cardProfile").addEventListener("click", () => {
     goToPage("profilePage");
+  });
+}
+
+if ($("cardTherapies")) {
+  $("cardTherapies").addEventListener("click", () => {
+    goToPage("physioPage");
   });
 }
 
