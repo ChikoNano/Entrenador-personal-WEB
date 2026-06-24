@@ -780,16 +780,7 @@ function renderSelectedUserAssignments() {
   days.forEach(day => {
     const assignedExercises = userRoutine[day] || [];
 
-    const validExercises = assignedExercises.filter(item => {
-      const exerciseId =
-        typeof item === "object"
-          ? item.exerciseId
-          : item;
-
-      return library.some(ex => Number(ex.id) === Number(exerciseId));
-    });
-
-    if (!Array.isArray(validExercises) || validExercises.length === 0) {
+    if (!Array.isArray(assignedExercises) || assignedExercises.length === 0) {
       return;
     }
 
@@ -797,7 +788,7 @@ function renderSelectedUserAssignments() {
       <details class="admin-routine-day" open>
         <summary>${day}</summary>
 
-        ${validExercises.map(item => {
+        ${assignedExercises.map(item => {
           const exerciseId =
             typeof item === "object"
               ? item.exerciseId
@@ -1094,38 +1085,30 @@ if (Array.isArray(users)) {
   const assignments = getUserAssignments();
   const completed = getCompletedExercises();
 
-  const weeks = ["Semana 1", "Semana 2", "Semana 3", "Semana 4"];
-const days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
-
-const userRoutine = assignments[currentUser] || {};
-
-let totalExercises = 0;
-let completedCount = 0;
-
-weeks.forEach(week => {
-  days.forEach(day => {
-    const exercises = userRoutine[day] || [];
-
-    totalExercises += exercises.length;
-
-    exercises.forEach(item => {
-      const key = `${currentUser}_${week}_${day}_${item.exerciseId}`;
-
-      if (completed[key]) {
-        completedCount++;
-      }
-    });
-  });
-});
-
-const percent =
-  totalExercises > 0
-    ? Math.round((completedCount / totalExercises) * 100)
-    : 0;
-
-    const week = selectedRoutineWeek || "Semana 1";
+  const week = selectedRoutineWeek || "Semana 1";
   const day = selectedRoutineDay || "Lunes";
-  const exercises = userRoutine[day] || [];
+
+  const userRoutine =
+    assignments[currentUser] || {};
+
+  const exercises =
+    userRoutine[day] || [];
+
+  let completedCount = 0;
+
+  exercises.forEach(item => {
+    const key =
+      `${currentUser}_${week}_${day}_${item.exerciseId}`;
+
+    if (completed[key]) {
+      completedCount++;
+    }
+  });
+
+  const percent =
+    exercises.length > 0
+      ? Math.round((completedCount / exercises.length) * 100)
+      : 0;
 
   if ($("dashboardProgressPercent")) {
     $("dashboardProgressPercent").textContent =
@@ -1133,8 +1116,8 @@ const percent =
   }
 
   if ($("dashboardProgressText")) {
-  $("dashboardProgressText").textContent =
-    `${completedCount} de ${totalExercises} ejercicios completados`;
+    $("dashboardProgressText").textContent =
+      `${completedCount} de ${exercises.length} ejercicios completados`;
   }
 
   if ($("todayRoutineLabel")) {
