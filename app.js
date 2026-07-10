@@ -229,7 +229,9 @@ function login() {
   startSession(email, user);
 }
 
-function startSession(email, user) {
+async function startSession(email, user) {
+  await initializeExerciseLibrary();
+
   if ($("whoami")) {
     $("whoami").textContent = `${user.name} (${user.role})`;
     $("whoami").classList.remove("hidden");
@@ -272,7 +274,7 @@ function logout() {
   goToPage("loginPage");
 }
 
-function restoreSession() {
+async function restoreSession() {
   const currentUser = localStorage.getItem("currentUser");
 
   if (!currentUser) {
@@ -288,7 +290,7 @@ function restoreSession() {
     return;
   }
 
-  startSession(currentUser, user);
+  await startSession(currentUser, user);
 }
 
 /* PERFIL */
@@ -427,26 +429,42 @@ function saveExerciseLibrary(library) {
   localStorage.setItem("exerciseLibrary", JSON.stringify(library));
 }
 
-async function loadDefaultExerciseLibrary() {
-  if (getExerciseLibrary().length > 0) return;
+let exerciseLibraryInitialization;
 
-  try {
-    const response = await fetch("data/exercises.json");
+async function initializeExerciseLibrary() {
+  if (exerciseLibraryInitialization) return exerciseLibraryInitialization;
 
-    if (!response.ok) {
-      throw new Error(`No se pudo cargar la biblioteca (${response.status})`);
+  exerciseLibraryInitialization = (async () => {
+    const savedLibrary = getExerciseLibrary();
+
+    if (savedLibrary.length > 0) return savedLibrary;
+
+    console.log("Cargando biblioteca desde JSON");
+
+    try {
+      const response = await fetch("./data/exercises.json");
+
+      if (!response.ok) {
+        throw new Error(`Error HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const library = await response.json();
+
+      if (!Array.isArray(library)) {
+        throw new Error("data/exercises.json no contiene un arreglo");
+      }
+
+      saveExerciseLibrary(library);
+      console.log(`${library.length} ejercicios cargados`);
+      return library;
+    } catch (error) {
+      console.error("Error al cargar la biblioteca desde JSON:", error);
+      exerciseLibraryInitialization = null;
+      return [];
     }
+  })();
 
-    const library = await response.json();
-
-    if (!Array.isArray(library)) {
-      throw new Error("El archivo de ejercicios no contiene una lista válida");
-    }
-
-    saveExerciseLibrary(library);
-  } catch (error) {
-    console.error("No se pudo cargar data/exercises.json:", error);
-  }
+  return exerciseLibraryInitialization;
 }
 
 function exportExerciseLibrary() {
@@ -1373,6 +1391,8 @@ function renderAdminData() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+ await initializeExerciseLibrary();
+
  if ($("cardWorkout")) {
   $("cardWorkout").addEventListener("click", () => {
     renderUserExercises();
@@ -1594,9 +1614,8 @@ document.querySelectorAll(".admin-tab-btn").forEach(button => {
   });
 });
 
-  await loadDefaultExerciseLibrary();
   showSlide(currentSlide);
   renderAdminData();
   renderUserExercises();
-  restoreSession();
+  await restoreSession();
 });
