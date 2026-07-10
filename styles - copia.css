@@ -290,7 +290,7 @@ details {
 
 .profile-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: .75rem;
   margin-top: 1rem;
 }
@@ -965,4 +965,102 @@ body {
 .therapy-info {
   margin: 1rem 0;
   line-height: 1.8;
+}
+
+.subscription-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .8rem;
+  margin: 1rem 0;
+}
+
+.subscription-summary div {
+  background: rgba(0,0,0,.4);
+  border: 1px solid rgba(255,196,0,.25);
+  border-radius: 16px;
+  padding: 1rem;
+  text-align: center;
+  font-weight: 800;
+}
+
+.subscription-table-wrap {
+  overflow-x: auto;
+  margin-top: 1rem;
+}
+
+.subscription-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.subscription-table th,
+.subscription-table td {
+  padding: .9rem;
+  border-bottom: 1px solid rgba(255,255,255,.12);
+  text-align: left;
+}
+
+.subscription-table th {
+  color: #ffc400;
+}
+
+.renew-btn {
+  min-width: 120px;
+  background: #ffc400;
+  color: #111 !important;
+}
+
+.subscription-status {
+  display: inline-block;
+  padding: .35rem .65rem;
+  border-radius: 999px;
+  font-size: .82rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.subscription-status.active { background: rgba(46,204,113,.18); color: #65e69a; }
+.subscription-status.warning { background: rgba(255,196,0,.18); color: #ffc400; }
+.subscription-status.expired { background: rgba(255,82,82,.18); color: #ff7676; }
+.subscription-empty { text-align: center !important; padding: 1.5rem !important; opacity: .75; }
+
+@media (max-width: 768px) {
+  .subscription-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .subscription-table { min-width: 0; }
+  .subscription-table thead { display: none; }
+
+  .subscription-table,
+  .subscription-table tbody,
+  .subscription-table tr,
+  .subscription-table td { display: block; width: 100%; }
+
+  .subscription-table tr {
+    margin-bottom: 1rem;
+    padding: .6rem;
+    border: 1px solid rgba(255,196,0,.2);
+    border-radius: 14px;
+    background: rgba(0,0,0,.25);
+  }
+
+  .subscription-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: .65rem;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  .subscription-table td::before {
+    content: attr(data-label);
+    color: #ffc400;
+    font-weight: 800;
+    text-align: left;
+  }
+
+  .subscription-table .subscription-empty::before { content: none; }
 }

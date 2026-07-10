@@ -82,7 +82,7 @@
   <!-- HERO -->
   <section class="dashboard-hero">
     <div>
-      <p class="dashboard-label">PROGRESO SEMANAL</p>
+      <p class="dashboard-label">PROGRESO MENSUAL</p>
 
       <h2 id="dashboardProgressPercent">
         0%
@@ -282,6 +282,10 @@
     <button class="admin-tab-btn" data-admin-tab="librarySection">
       Biblioteca
     </button>
+
+    <button class="admin-tab-btn" data-admin-tab="subscriptionsSection">
+    Suscripciones
+    </button>
   </div>
 
   <!-- =========================
@@ -443,6 +447,42 @@
 
   </div>
 
+
+  <div class="admin-section" id="subscriptionsSection">
+  <h3>Suscripciones</h3>
+
+  <div class="subscription-summary">
+    <div>Total: <strong id="totalCount">0</strong></div>
+    <div>🔴 Vencidos: <strong id="expiredCount">0</strong></div>
+    <div>🟡 Por vencer: <strong id="warningCount">0</strong></div>
+    <div>🟢 Activos: <strong id="activeCount">0</strong></div>
+  </div>
+
+  <label for="subscriptionFilter">Filtrar por estado:</label>
+  <select id="subscriptionFilter">
+    <option value="all">Todos</option>
+    <option value="active">🟢 Activos</option>
+    <option value="warning">🟡 Por vencer</option>
+    <option value="expired">🔴 Vencidos</option>
+  </select>
+
+  <div class="subscription-table-wrap">
+    <table class="subscription-table">
+      <thead>
+        <tr>
+          <th>Usuario</th>
+          <th>Correo</th>
+          <th>Inicio</th>
+          <th>Vence</th>
+          <th>Días restantes</th>
+          <th>Estado</th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody id="subscriptionsList"></tbody>
+    </table>
+  </div>
+</div>
 </div>
   <!-- FISIOTERAPIA -->
   <!-- FISIOTERAPIA -->
@@ -455,15 +495,16 @@
     <p>
       Agenda una valoración o solicita información sobre fisioterapia,
       rehabilitación y recuperación física.
+      PREVIA CITA
     </p>
 
     <div class="therapy-info">
       <p><strong>Horario:</strong></p>
       <p>Lunes a Viernes</p>
-      <p>10:00 AM - 6:00 PM</p>
+      <p>12:00 AM - 5:00 PM</p>
 
       <p><strong>WhatsApp:</strong></p>
-      <p>55 1242 3002</p>
+      <p>55 5997 0953</p>
     </div>
 
     <button class="btn" onclick="contactTherapy()">

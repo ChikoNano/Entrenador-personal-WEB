@@ -778,17 +778,26 @@ function renderSelectedUserAssignments() {
   let html = "";
 
   days.forEach(day => {
-    const assignedExercises = userRoutine[day] || [];
+   const assignedExercises = userRoutine[day] || [];
 
-    if (!Array.isArray(assignedExercises) || assignedExercises.length === 0) {
-      return;
-    }
+const validExercises = assignedExercises.filter(item => {
+  const exerciseId =
+    typeof item === "object"
+      ? item.exerciseId
+      : item;
+
+  return library.some(ex => Number(ex.id) === Number(exerciseId));
+});
+
+if (!Array.isArray(validExercises) || validExercises.length === 0) {
+  return;
+}
 
     html += `
       <details class="admin-routine-day" open>
         <summary>${day}</summary>
 
-        ${assignedExercises.map(item => {
+        ${validExercises.map(item => {
           const exerciseId =
             typeof item === "object"
               ? item.exerciseId
@@ -1052,30 +1061,13 @@ function updateSelectedUserLabel() {
   }
 }
 
-function renderAdminData() {
-  renderUserSelect();
-  renderExerciseLibrary();
-  renderExerciseSelect();
-  renderSelectedUserAssignments();
-  renderSelectedUserProfile();
-  updateSelectedUserLabel();
-}
-
 function renderDashboard() {
   const currentUser = localStorage.getItem("currentUser");
 
   if (!currentUser) return;
 
-  const users =
-  JSON.parse(localStorage.getItem("users")) || [];
-
-let user = null;
-
-if (Array.isArray(users)) {
-  user = users.find(u => u.email === currentUser);
-} else {
-  user = users[currentUser];
-}
+  const users = getUsers();
+  const user = users[currentUser];
 
   if ($("dashboardUserName")) {
     $("dashboardUserName").textContent =
@@ -1085,30 +1077,34 @@ if (Array.isArray(users)) {
   const assignments = getUserAssignments();
   const completed = getCompletedExercises();
 
-  const week = selectedRoutineWeek || "Semana 1";
-  const day = selectedRoutineDay || "Lunes";
+  const weeks = ["Semana 1", "Semana 2", "Semana 3", "Semana 4"];
+const days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 
-  const userRoutine =
-    assignments[currentUser] || {};
+const userRoutine = assignments[currentUser] || {};
 
-  const exercises =
-    userRoutine[day] || [];
+let totalExercises = 0;
+let completedCount = 0;
 
-  let completedCount = 0;
+weeks.forEach(week => {
+  days.forEach(day => {
+    const exercises = userRoutine[day] || [];
 
-  exercises.forEach(item => {
-    const key =
-      `${currentUser}_${week}_${day}_${item.exerciseId}`;
+    totalExercises += exercises.length;
 
-    if (completed[key]) {
-      completedCount++;
-    }
+    exercises.forEach(item => {
+      const key = `${currentUser}_${week}_${day}_${item.exerciseId}`;
+
+      if (completed[key]) {
+        completedCount++;
+      }
+    });
   });
+});
 
-  const percent =
-    exercises.length > 0
-      ? Math.round((completedCount / exercises.length) * 100)
-      : 0;
+const percent =
+  totalExercises > 0
+    ? Math.round((completedCount / totalExercises) * 100)
+    : 0;
 
   if ($("dashboardProgressPercent")) {
     $("dashboardProgressPercent").textContent =
@@ -1117,8 +1113,13 @@ if (Array.isArray(users)) {
 
   if ($("dashboardProgressText")) {
     $("dashboardProgressText").textContent =
-      `${completedCount} de ${exercises.length} ejercicios completados`;
+      `${completedCount} de ${totalExercises} ejercicios completados`;
   }
+
+  const week = selectedRoutineWeek || "Semana 1";
+  const todayIndex = new Date().getDay();
+  const day = days[todayIndex === 0 ? 6 : todayIndex - 1];
+  const exercises = Array.isArray(userRoutine[day]) ? userRoutine[day] : [];
 
   if ($("todayRoutineLabel")) {
     $("todayRoutineLabel").textContent =
@@ -1132,7 +1133,7 @@ if (Array.isArray(users)) {
       exercises.slice(0, 3).map(item => {
 
         const exercise =
-          library.find(ex => ex.id === item.exerciseId);
+          library.find(ex => Number(ex.id) === Number(item.exerciseId));
 
         if (!exercise) return "";
 
@@ -1153,6 +1154,161 @@ if (Array.isArray(users)) {
   }
 }
 
+/* SUSCRIPCIONES */
+
+function getDaysRemaining(expiresAt) {
+  if (!expiresAt) return 0;
+  const today = new Date();
+  const expiration = new Date(expiresAt);
+  if (Number.isNaN(expiration.getTime())) return 0;
+  today.setHours(0, 0, 0, 0);
+  expiration.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.ceil((expiration - today) / 86400000));
+}
+
+function getSubscriptionStatus(expiresAt) {
+  const days = getDaysRemaining(expiresAt);
+  if (days === 0) return "expired";
+  if (days <= 7) return "warning";
+  return "active";
+}
+
+function formatSubscriptionDate(value) {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) return "Sin fecha";
+  return date.toLocaleDateString("es-MX", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  });
+}
+
+function parseStoredDate(value) {
+  if (!value) return null;
+
+  const directDate = new Date(value);
+  if (!Number.isNaN(directDate.getTime())) return directDate;
+
+  const match = String(value).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!match) return null;
+
+  const parsedDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function addOneMonth(date) {
+  const result = new Date(date);
+  const originalDay = result.getDate();
+  result.setDate(1);
+  result.setMonth(result.getMonth() + 1);
+  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(originalDay, lastDay));
+  return result;
+}
+
+function ensureSubscriptionDates() {
+  const allUsers = getUsers();
+  const customUsers = JSON.parse(localStorage.getItem("users")) || {};
+  let changed = false;
+
+  Object.entries(allUsers).forEach(([email, user]) => {
+    if (user.role === "admin" || (user.createdAt && user.expiresAt)) return;
+
+    const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${email}`)) || {};
+    const startDate = parseStoredDate(user.createdAt) ||
+      parseStoredDate(questionnaire.completedAt) || new Date();
+    const expirationDate = parseStoredDate(user.expiresAt) || addOneMonth(startDate);
+
+    customUsers[email] = {
+      ...user,
+      createdAt: startDate.toISOString(),
+      expiresAt: expirationDate.toISOString()
+    };
+    changed = true;
+  });
+
+  if (changed) localStorage.setItem("users", JSON.stringify(customUsers));
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>'"]/g, character => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;",
+    "'": "&#39;", '"': "&quot;"
+  })[character]);
+}
+
+function filterSubscriptions(filter = "all") {
+  if ($("subscriptionFilter")) $("subscriptionFilter").value = filter;
+  renderSubscriptions();
+}
+
+function renderSubscriptions() {
+  const list = $("subscriptionsList");
+  if (!list) return;
+
+  ensureSubscriptionDates();
+
+  const filter = $("subscriptionFilter")?.value || "all";
+  const users = Object.entries(getUsers())
+    .filter(([, user]) => user.role !== "admin")
+    .map(([email, user]) => ({
+      email,
+      user,
+      daysRemaining: getDaysRemaining(user.expiresAt),
+      status: getSubscriptionStatus(user.expiresAt)
+    }));
+
+  const counts = users.reduce((result, item) => {
+    result[item.status]++;
+    return result;
+  }, { active: 0, warning: 0, expired: 0 });
+
+  if ($("totalCount")) $("totalCount").textContent = users.length;
+  if ($("activeCount")) $("activeCount").textContent = counts.active;
+  if ($("warningCount")) $("warningCount").textContent = counts.warning;
+  if ($("expiredCount")) $("expiredCount").textContent = counts.expired;
+
+  const order = { expired: 0, warning: 1, active: 2 };
+  const visibleUsers = users
+    .filter(item => filter === "all" || item.status === filter)
+    .sort((a, b) => order[a.status] - order[b.status] ||
+      a.daysRemaining - b.daysRemaining || a.email.localeCompare(b.email));
+
+  if (!visibleUsers.length) {
+    list.innerHTML = '<tr><td class="subscription-empty" colspan="7">No hay usuarios en este estado.</td></tr>';
+    return;
+  }
+
+  const labels = { active: "Activo", warning: "Por vencer", expired: "Vencido" };
+  list.innerHTML = visibleUsers.map(({ email, user, daysRemaining, status }) => `
+    <tr>
+      <td data-label="Usuario">${escapeHTML(user.name || "Sin nombre")}</td>
+      <td data-label="Correo">${escapeHTML(email)}</td>
+      <td data-label="Fecha de inicio">${formatSubscriptionDate(user.createdAt)}</td>
+      <td data-label="Fecha de vencimiento">${formatSubscriptionDate(user.expiresAt)}</td>
+      <td data-label="Días restantes">${daysRemaining}</td>
+      <td data-label="Estado"><span class="subscription-status ${status}">${labels[status]}</span></td>
+      <td data-label="Acción">${status === "active" ? "—" : `<button class="btn renew-btn" type="button" data-renew-email="${escapeHTML(email)}">Renovar</button>`}</td>
+    </tr>
+  `).join("");
+}
+
+function renewSubscription(email) {
+  const user = getUsers()[email];
+  if (!user || user.role === "admin") return;
+
+  const now = new Date();
+  const currentExpiration = new Date(user.expiresAt);
+  const baseDate = !Number.isNaN(currentExpiration.getTime()) && currentExpiration > now
+    ? currentExpiration : now;
+  const renewedDate = addOneMonth(baseDate);
+
+  const customUsers = JSON.parse(localStorage.getItem("users")) || {};
+  customUsers[email] = { ...user, expiresAt: renewedDate.toISOString() };
+  localStorage.setItem("users", JSON.stringify(customUsers));
+  renderSubscriptions();
+}
+
 function contactTherapy() {
 
   const message = encodeURIComponent(
@@ -1160,18 +1316,43 @@ function contactTherapy() {
   );
 
   window.open(
-    "https://wa.me/525512423002?text=" + message,
+    "https://wa.me/525559970953?text=" + message,
     "_blank"
   );
 }
 
 /* INICIO */
 
+function renderAdminData() {
+  renderUserSelect();
+  renderExerciseLibrary();
+  renderExerciseSelect();
+  renderSelectedUserAssignments();
+  renderSelectedUserProfile();
+  updateSelectedUserLabel();
+  if (typeof renderSubscriptions === "function") {
+  renderSubscriptions();
+}
+}
+
 document.addEventListener("DOMContentLoaded", () => {
  if ($("cardWorkout")) {
   $("cardWorkout").addEventListener("click", () => {
     renderUserExercises();
     goToPage("exercisePage");
+  });
+}
+
+if ($("subscriptionFilter")) {
+  $("subscriptionFilter").addEventListener("change", event => {
+    filterSubscriptions(event.target.value);
+  });
+}
+
+if ($("subscriptionsList")) {
+  $("subscriptionsList").addEventListener("click", event => {
+    const button = event.target.closest("[data-renew-email]");
+    if (button) renewSubscription(button.dataset.renewEmail);
   });
 }
 
@@ -1238,27 +1419,6 @@ if ($("btnGoProfile")) {
 
       goToPage("questionnairePage");
 
-            document.querySelectorAll(".admin-tab-btn").forEach(button => {
-        button.addEventListener("click", () => {
-          const target = button.dataset.adminTab;
-
-          document.querySelectorAll(".admin-tab-btn").forEach(btn => {
-            btn.classList.remove("active");
-          });
-
-          document.querySelectorAll(".admin-section").forEach(section => {
-            section.classList.remove("active");
-          });
-
-          button.classList.add("active");
-
-          if ($(target)) {
-            $(target).classList.add("active");
-          }
-
-          renderAdminData();
-        });
-      });
       showSlide(currentSlide);
     });
   }
@@ -1392,6 +1552,8 @@ document.querySelectorAll(".admin-tab-btn").forEach(button => {
     if (section) {
       section.classList.add("active");
     }
+
+    if (target === "subscriptionsSection") renderSubscriptions();
   });
 });
 
