@@ -282,10 +282,6 @@
     <button class="admin-tab-btn" data-admin-tab="librarySection">
       Biblioteca
     </button>
-
-    <button class="admin-tab-btn" data-admin-tab="subscriptionsSection">
-    Suscripciones
-    </button>
   </div>
 
   <!-- =========================
@@ -447,42 +443,6 @@
 
   </div>
 
-
-  <div class="admin-section" id="subscriptionsSection">
-  <h3>Suscripciones</h3>
-
-  <div class="subscription-summary">
-    <div>Total: <strong id="totalCount">0</strong></div>
-    <div>🔴 Vencidos: <strong id="expiredCount">0</strong></div>
-    <div>🟡 Por vencer: <strong id="warningCount">0</strong></div>
-    <div>🟢 Activos: <strong id="activeCount">0</strong></div>
-  </div>
-
-  <label for="subscriptionFilter">Filtrar por estado:</label>
-  <select id="subscriptionFilter">
-    <option value="all">Todos</option>
-    <option value="active">🟢 Activos</option>
-    <option value="warning">🟡 Por vencer</option>
-    <option value="expired">🔴 Vencidos</option>
-  </select>
-
-  <div class="subscription-table-wrap">
-    <table class="subscription-table">
-      <thead>
-        <tr>
-          <th>Usuario</th>
-          <th>Correo</th>
-          <th>Inicio</th>
-          <th>Vence</th>
-          <th>Días restantes</th>
-          <th>Estado</th>
-          <th>Acción</th>
-        </tr>
-      </thead>
-      <tbody id="subscriptionsList"></tbody>
-    </table>
-  </div>
-</div>
 </div>
   <!-- FISIOTERAPIA -->
   <!-- FISIOTERAPIA -->
