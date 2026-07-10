@@ -427,6 +427,43 @@ function saveExerciseLibrary(library) {
   localStorage.setItem("exerciseLibrary", JSON.stringify(library));
 }
 
+async function loadDefaultExerciseLibrary() {
+  if (getExerciseLibrary().length > 0) return;
+
+  try {
+    const response = await fetch("data/exercises.json");
+
+    if (!response.ok) {
+      throw new Error(`No se pudo cargar la biblioteca (${response.status})`);
+    }
+
+    const library = await response.json();
+
+    if (!Array.isArray(library)) {
+      throw new Error("El archivo de ejercicios no contiene una lista válida");
+    }
+
+    saveExerciseLibrary(library);
+  } catch (error) {
+    console.error("No se pudo cargar data/exercises.json:", error);
+  }
+}
+
+function exportExerciseLibrary() {
+  const library = getExerciseLibrary();
+  const json = JSON.stringify(library, null, 2);
+  const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = downloadUrl;
+  link.download = "exercise-library.json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(downloadUrl);
+}
+
 function getUserAssignments() {
   return JSON.parse(localStorage.getItem("userAssignments")) || {};
 }
@@ -1335,7 +1372,7 @@ function renderAdminData() {
 }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
  if ($("cardWorkout")) {
   $("cardWorkout").addEventListener("click", () => {
     renderUserExercises();
@@ -1557,6 +1594,7 @@ document.querySelectorAll(".admin-tab-btn").forEach(button => {
   });
 });
 
+  await loadDefaultExerciseLibrary();
   showSlide(currentSlide);
   renderAdminData();
   renderUserExercises();
