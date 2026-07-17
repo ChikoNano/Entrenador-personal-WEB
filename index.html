@@ -37,29 +37,101 @@
 
   <!-- CUESTIONARIO -->
   <div class="container hidden" id="questionnairePage">
-    <h1 class="title">Cuestionario Inicial</h1>
+    <div class="assessment-header">
+      <p class="assessment-eyebrow">EVALUACIÓN PERSONALIZADA</p>
+      <h1 class="title">Evaluación Física Inicial</h1>
+      <p class="assessment-subtitle">Completa esta evaluación para que tu entrenador pueda diseñar un plan personalizado según tus objetivos y condición física.</p>
 
-    <div class="slide">1. Prueba de Cooper: corre 12 minutos y registra la distancia.</div>
-    <div class="slide">2. Prueba VAM: test progresivo para medir velocidad aeróbica máxima.</div>
-
-    <div class="slide">
-      <label>3. Objetivo principal:</label><br>
-      <label><input type="radio" name="objetivo" value="Pérdida de peso"> Pérdida de peso</label><br>
-      <label><input type="radio" name="objetivo" value="Hipertrofia"> Hipertrofia</label><br>
-      <label><input type="radio" name="objetivo" value="Fuerza"> Fuerza</label><br>
-      <label><input type="radio" name="objetivo" value="Prescripción médica"> Prescripción médica</label>
+      <div class="assessment-progress" aria-label="Progreso de la evaluación">
+        <div class="assessment-progress-top">
+          <span id="assessmentProgressText">Pregunta 1 de 7</span>
+          <span id="assessmentProgressPercent">14%</span>
+        </div>
+        <div class="assessment-progress-track">
+          <div class="assessment-progress-fill" id="assessmentProgressFill"></div>
+        </div>
+      </div>
     </div>
 
-    <div class="slide">4. Define un objetivo claro y medible.</div>
-    <div class="slide">5. Da seguimiento a tu progreso.</div>
-    <div class="slide">6. Fija tiempos realistas.</div>
-    <div class="slide">7. Ajusta y celebra logros.</div>
-    <div class="slide">8. No te compares con otros.</div>
+    <div class="slide assessment-slide" data-question="goal">
+      <h2>¿Cuál es tu principal objetivo?</h2>
+      <label><input type="radio" name="goal" value="Ganar masa muscular"> <span>💪 Ganar masa muscular</span></label>
+      <label><input type="radio" name="goal" value="Perder grasa"> <span>🔥 Perder grasa</span></label>
+      <label><input type="radio" name="goal" value="Tonificar mi cuerpo"> <span>⚖️ Tonificar mi cuerpo</span></label>
+      <label><input type="radio" name="goal" value="Mejorar mi condición física"> <span>❤️ Mejorar mi condición física</span></label>
+      <label><input type="radio" name="goal" value="Aumentar fuerza"> <span>🏋️ Aumentar fuerza</span></label>
+      <label><input type="radio" name="goal" value="Mantenerme activo"> <span>😊 Mantenerme activo</span></label>
+    </div>
+
+    <div class="slide assessment-slide" data-question="previousTraining">
+      <h2>¿Has entrenado anteriormente?</h2>
+      <label><input type="radio" name="previousTraining" value="Nunca"> <span>Nunca</span></label>
+      <label><input type="radio" name="previousTraining" value="Hace mucho tiempo"> <span>Hace mucho tiempo</span></label>
+      <label><input type="radio" name="previousTraining" value="Sí, entreno ocasionalmente"> <span>Sí, entreno ocasionalmente</span></label>
+      <label><input type="radio" name="previousTraining" value="Sí, entreno de forma constante"> <span>Sí, entreno de forma constante</span></label>
+    </div>
+
+    <div class="slide assessment-slide" data-question="trainingDays">
+      <h2>¿Cuántos días a la semana puedes entrenar?</h2>
+      <label><input type="radio" name="trainingDays" value="2 días"> <span>2 días</span></label>
+      <label><input type="radio" name="trainingDays" value="3 días"> <span>3 días</span></label>
+      <label><input type="radio" name="trainingDays" value="4 días"> <span>4 días</span></label>
+      <label><input type="radio" name="trainingDays" value="5 días"> <span>5 días</span></label>
+      <label><input type="radio" name="trainingDays" value="6 o más días"> <span>6 o más días</span></label>
+    </div>
+
+    <div class="slide assessment-slide" data-question="sessionDuration">
+      <h2>¿Cuánto tiempo puedes dedicar por sesión?</h2>
+      <label><input type="radio" name="sessionDuration" value="30 minutos"> <span>30 minutos</span></label>
+      <label><input type="radio" name="sessionDuration" value="45 minutos"> <span>45 minutos</span></label>
+      <label><input type="radio" name="sessionDuration" value="60 minutos"> <span>60 minutos</span></label>
+      <label><input type="radio" name="sessionDuration" value="75 minutos"> <span>75 minutos</span></label>
+      <label><input type="radio" name="sessionDuration" value="90 minutos o más"> <span>90 minutos o más</span></label>
+    </div>
+
+    <div class="slide assessment-slide" data-question="gymExperience">
+      <h2>¿Cómo calificarías tu experiencia en el gimnasio?</h2>
+      <label><input type="radio" name="gymExperience" value="Soy principiante"> <span>Soy principiante</span></label>
+      <label><input type="radio" name="gymExperience" value="Tengo conocimientos básicos"> <span>Tengo conocimientos básicos</span></label>
+      <label><input type="radio" name="gymExperience" value="Tengo experiencia"> <span>Tengo experiencia</span></label>
+      <label><input type="radio" name="gymExperience" value="Tengo experiencia avanzada"> <span>Tengo experiencia avanzada</span></label>
+    </div>
+
+    <div class="slide assessment-slide" data-question="physicalActivity">
+      <h2>¿Actualmente realizas actividad física?</h2>
+      <label><input type="radio" name="physicalActivity" value="No"> <span>No</span></label>
+      <label><input type="radio" name="physicalActivity" value="1 o 2 veces por semana"> <span>1 o 2 veces por semana</span></label>
+      <label><input type="radio" name="physicalActivity" value="3 o 4 veces por semana"> <span>3 o 4 veces por semana</span></label>
+      <label><input type="radio" name="physicalActivity" value="5 o más veces por semana"> <span>5 o más veces por semana</span></label>
+    </div>
+
+    <div class="slide assessment-slide" data-question="hasInjury">
+      <h2>¿Tienes alguna lesión o condición médica que deba considerar?</h2>
+      <label><input type="radio" name="hasInjury" value="true"> <span>Sí</span></label>
+      <label><input type="radio" name="hasInjury" value="false"> <span>No</span></label>
+
+      <div class="injury-description hidden" id="injuryDescriptionWrap">
+        <label for="injuryDescription">Describe brevemente tu lesión o condición médica.</label>
+        <textarea id="injuryDescription" rows="4" maxlength="500" placeholder="Escribe aquí la información que deba conocer tu entrenador"></textarea>
+      </div>
+    </div>
 
     <div class="btn-row">
       <button class="btn" id="prevBtn">Anterior</button>
       <button class="btn" id="nextBtn">Siguiente</button>
     </div>
+    <p class="assessment-save-error hidden" id="assessmentSaveError" role="alert"></p>
+
+    <section class="assessment-confirmation hidden" id="assessmentConfirmation" aria-live="polite">
+      <div class="assessment-confirmation-icon" aria-hidden="true">✓</div>
+      <h2>¡Evaluación completada!</h2>
+      <p class="assessment-confirmation-message">Tu entrenador ya cuenta con la información necesaria para comenzar a diseñar tu plan personalizado.</p>
+      <p class="assessment-processing-label">Preparando tu perfil...</p>
+      <div class="assessment-processing-progress" aria-label="Preparando perfil">
+        <div class="assessment-processing-fill" id="assessmentProcessingFill"></div>
+      </div>
+      <span class="assessment-processing-percent" id="assessmentProcessingPercent">0%</span>
+    </section>
   </div>
 
 <!-- DASHBOARD -->
@@ -80,7 +152,7 @@
   </header>
 
   <!-- HERO -->
-  <section class="dashboard-hero">
+  <section class="dashboard-hero card-dark">
     <div>
       <p class="dashboard-label">PROGRESO MENSUAL</p>
 
@@ -145,44 +217,85 @@
 
   <summary>Editar perfil</summary>
 
-  <img id="profilePreview"
-       class="profile-photo hidden"
-       alt="Foto de perfil">
+  <div class="profile-edit-content">
+    <section class="profile-photo-field" aria-labelledby="profilePhotoLabel">
+      <span id="profilePhotoLabel" class="file-label">Foto de perfil</span>
 
-  <label class="file-label">
-    Foto de perfil:
-  </label>
+      <img id="profilePreview"
+           class="profile-photo hidden"
+           alt="Foto de perfil">
 
-  <label for="profilePhoto"
-         class="custom-file-btn">
-    Cambiar foto
-  </label>
+      <label for="profilePhoto" class="custom-file-btn">
+        Cambiar foto
+      </label>
 
-  <input type="file"
-         id="profilePhoto"
-         accept="image/*"
-         class="hidden-file">
+      <input type="file"
+             id="profilePhoto"
+             accept="image/*"
+             class="hidden-file">
+    </section>
 
-  <label for="pName">Nombre:</label>
-  <input type="text"
-         id="pName"
-         placeholder="Nombre">
+    <div class="profile-form-field">
+      <label for="pName">Nombre</label>
+      <input type="text"
+             id="pName"
+             placeholder="Nombre">
+    </div>
 
-  <label for="pAge">Edad:</label>
-  <input type="number"
-         id="pAge"
-         placeholder="Edad">
+    <div class="profile-form-field">
+      <label for="pAge">Edad</label>
+      <input type="number"
+             id="pAge"
+             placeholder="Edad">
+    </div>
 
-  <label for="pWeight">Peso (kg):</label>
-  <input type="number"
-         id="pWeight"
-         placeholder="Peso">
+    <div class="profile-form-field">
+      <label for="pWeight">Peso (kg)</label>
+      <input type="number"
+             id="pWeight"
+             placeholder="Peso">
+    </div>
 
-  <label for="pHeight">Altura:</label>
-  <input type="number"
-         id="pHeight"
-         placeholder="Altura"
-         step="0.01">
+    <div class="profile-form-field">
+      <label for="pHeight">Estatura</label>
+      <input type="number"
+             id="pHeight"
+             placeholder="Estatura"
+             step="0.01">
+    </div>
+
+  <div class="aerobic-fields-heading">
+    <span>Evaluaciones aeróbicas</span>
+    <small>Registra tus resultados más recientes</small>
+  </div>
+
+  <div class="profile-field-heading">
+    <label for="cooperDistance">Prueba de Cooper</label>
+    <button class="aerobic-info-btn" type="button" data-aerobic-info="cooper" aria-label="Información sobre la Prueba de Cooper">i</button>
+  </div>
+  <div class="profile-input-unit">
+    <input type="number"
+           id="cooperDistance"
+           min="0"
+           step="0.01"
+           inputmode="decimal"
+           placeholder="Ej. 2.45">
+    <span aria-hidden="true">km</span>
+  </div>
+
+  <div class="profile-field-heading">
+    <label for="vamSpeed">Prueba de VAM</label>
+    <button class="aerobic-info-btn" type="button" data-aerobic-info="vam" aria-label="Información sobre la Prueba de VAM">i</button>
+  </div>
+  <div class="profile-input-unit">
+    <input type="number"
+           id="vamSpeed"
+           min="0"
+           step="0.01"
+           inputmode="decimal"
+           placeholder="Ej. 14.5">
+    <span aria-hidden="true">km/h</span>
+  </div>
 
   <button class="btn"
           id="btnSaveProfile">
@@ -193,6 +306,7 @@
      class="hidden">
     ✅ Perfil guardado
   </p>
+  </div>
 
 </details>
   <div class="btn-row">
@@ -212,7 +326,7 @@
       <p id="routineSubtitle">Semana 1 · Lunes</p>
     </div>
 
-    <button class="routine-menu-btn" id="btnRoutineMenu">
+    <button class="routine-menu-btn" id="btnRoutineMenu" type="button" aria-expanded="true" aria-label="Mostrar u ocultar navegación de rutina">
       ☰
     </button>
   </header>
@@ -237,9 +351,42 @@
     </div>
   </section>
 
+  <!-- NAVEGACIÓN MÓVIL -->
+  <section class="mobile-routine-nav open" id="mobileRoutineNav" aria-label="Navegación de rutina móvil">
+    <div class="mobile-week-selector">
+      <button
+        class="mobile-week-toggle"
+        id="mobileWeekToggle"
+        type="button"
+        aria-expanded="false"
+        aria-controls="mobileWeekOptions"
+      >
+        <span id="mobileWeekLabel">Semana 1</span>
+        <span class="mobile-week-chevron" aria-hidden="true">▾</span>
+      </button>
+
+      <div class="mobile-week-options" id="mobileWeekOptions">
+        <button class="mobile-week-option active" type="button" data-week="Semana 1">Semana 1</button>
+        <button class="mobile-week-option" type="button" data-week="Semana 2">Semana 2</button>
+        <button class="mobile-week-option" type="button" data-week="Semana 3">Semana 3</button>
+        <button class="mobile-week-option" type="button" data-week="Semana 4">Semana 4</button>
+      </div>
+    </div>
+
+    <div class="mobile-day-tabs" aria-label="Seleccionar día">
+      <button class="mobile-day-btn active" type="button" data-day="Lunes">Lunes</button>
+      <button class="mobile-day-btn" type="button" data-day="Martes">Martes</button>
+      <button class="mobile-day-btn" type="button" data-day="Miércoles">Miércoles</button>
+      <button class="mobile-day-btn" type="button" data-day="Jueves">Jueves</button>
+      <button class="mobile-day-btn" type="button" data-day="Viernes">Viernes</button>
+      <button class="mobile-day-btn" type="button" data-day="Sábado">Sábado</button>
+      <button class="mobile-day-btn" type="button" data-day="Domingo">Domingo</button>
+    </div>
+  </section>
+
   <!-- BODY -->
   <main class="routine-body">
-    <section class="progress-card">
+    <section class="progress-card card-theme-adaptive">
       <h3>Progreso semanal</h3>
 
       <p id="progressText">0 ejercicios completados</p>
@@ -269,25 +416,6 @@
 
   <h1 class="title">Panel del Entrenador</h1>
 
-  <!-- TABS -->
-  <div class="admin-tabs">
-    <button class="admin-tab-btn active" data-admin-tab="usersSection">
-      Usuarios
-    </button>
-
-    <button class="admin-tab-btn" data-admin-tab="routineSection">
-      Rutinas
-    </button>
-
-    <button class="admin-tab-btn" data-admin-tab="librarySection">
-      Biblioteca
-    </button>
-
-    <button class="admin-tab-btn" data-admin-tab="subscriptionsSection">
-    Suscripciones
-    </button>
-  </div>
-
   <!-- =========================
        USUARIOS
   ========================== -->
@@ -306,6 +434,14 @@
     <input type="password"
            id="newUserPassword"
            placeholder="Contraseña">
+
+    <label for="newUserPlanType">TIPO DE PLAN</label>
+    <select id="newUserPlanType" required>
+      <option value="">Selecciona un plan</option>
+      <option value="Plan personal">Plan personal</option>
+      <option value="Plan grupal">Plan grupal</option>
+      <option value="Plan APP">Plan APP</option>
+    </select>
 
     <button class="btn" id="btnCreateUser">
       Crear usuario
@@ -342,7 +478,7 @@
 
     <h3>Asignar ejercicios</h3>
 
-    <select id="routineDay">
+    <select id="routineDay" class="assignment-select">
       <option value="Lunes">Lunes</option>
       <option value="Martes">Martes</option>
       <option value="Miércoles">Miércoles</option>
@@ -352,7 +488,11 @@
       <option value="Domingo">Domingo</option>
     </select>
 
-    <select id="exerciseSelect"></select>
+    <select id="exerciseCategoryFilter" class="assignment-select" aria-label="Grupo muscular">
+      <option value="Todos">Todos los grupos</option>
+    </select>
+
+    <select id="exerciseSelect" class="assignment-select" aria-label="Ejercicio"></select>
 
     <input type="number"
            id="exerciseSets"
@@ -472,6 +612,7 @@
         <tr>
           <th>Usuario</th>
           <th>Correo</th>
+          <th>Tipo de plan</th>
           <th>Inicio</th>
           <th>Vence</th>
           <th>Días restantes</th>
@@ -516,6 +657,74 @@
     <button class="btn" id="btnBackToExercises">Anterior</button>
   </div>
 </div>
+
+  <!-- NAVEGACIÓN FLOTANTE DEL ENTRENADOR: hija directa de body -->
+  <nav class="admin-floating-nav" aria-label="Navegación del panel del entrenador">
+    <div class="admin-tabs admin-floating-nav-track">
+      <button class="admin-tab-btn active" type="button" data-admin-tab="usersSection">
+        <svg class="admin-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="8" r="3.25"></circle>
+          <path d="M5.5 19c.45-3.55 2.62-5.5 6.5-5.5s6.05 1.95 6.5 5.5"></path>
+        </svg>
+        <span>Usuarios</span>
+      </button>
+      <button class="admin-tab-btn" type="button" data-admin-tab="routineSection">
+        <svg class="admin-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 8v8M4.5 9.5v5M17 8v8M19.5 9.5v5M7 12h10"></path>
+        </svg>
+        <span>Rutinas</span>
+      </button>
+      <button class="admin-tab-btn" type="button" data-admin-tab="librarySection">
+        <svg class="admin-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4.5 5.5h6.25c1.1 0 1.25.65 1.25 1.35V19c0-1.2-.65-1.75-1.75-1.75H4.5zM19.5 5.5h-6.25c-1.1 0-1.25.65-1.25 1.35V19c0-1.2.65-1.75 1.75-1.75h5.75z"></path>
+        </svg>
+        <span>Biblioteca</span>
+      </button>
+      <button class="admin-tab-btn" type="button" data-admin-tab="subscriptionsSection">
+        <svg class="admin-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="4" y="6" width="16" height="12" rx="2.5"></rect>
+          <path d="M4 10h16M8 14h4"></path>
+        </svg>
+        <span>Suscripciones</span>
+      </button>
+      <button class="admin-logout-btn" id="adminNavLogout" type="button">
+        <svg class="admin-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M10 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19H10M14.5 8.5 18 12l-3.5 3.5M9 12h9"></path>
+        </svg>
+        <span>Salir</span>
+      </button>
+    </div>
+  </nav>
+
+  <nav id="mobilePrimaryNav" class="mobile-primary-nav hidden" aria-label="Navegación principal">
+    <button class="mobile-primary-nav-item" type="button" data-mobile-page="exercisePage" aria-label="Abrir Rutina">
+      <span class="mobile-nav-icon" aria-hidden="true">🏋️</span>
+      <span class="mobile-nav-label">Rutina</span>
+    </button>
+    <button class="mobile-primary-nav-item" type="button" data-mobile-page="profilePage" aria-label="Abrir Perfil">
+      <span class="mobile-nav-icon" aria-hidden="true">👤</span>
+      <span class="mobile-nav-label">Perfil</span>
+    </button>
+    <button class="mobile-primary-nav-item" type="button" data-mobile-page="physioPage" aria-label="Abrir Terapias">
+      <span class="mobile-nav-icon" aria-hidden="true">🧘</span>
+      <span class="mobile-nav-label">Terapias</span>
+    </button>
+    <button id="mobileNavLogout" class="mobile-primary-nav-item mobile-nav-logout" type="button" aria-label="Cerrar sesión">
+      <span class="mobile-nav-icon" aria-hidden="true">🚪</span>
+      <span class="mobile-nav-label">Salir</span>
+    </button>
+  </nav>
+
+  <div id="aerobicInfoModal" class="aerobic-modal hidden" role="dialog" aria-modal="true" aria-labelledby="aerobicModalTitle">
+    <div class="aerobic-modal-backdrop" data-close-aerobic-modal></div>
+    <div class="aerobic-modal-panel" role="document">
+      <button id="closeAerobicModal" class="aerobic-modal-close" type="button" aria-label="Cerrar información">×</button>
+      <span class="aerobic-modal-kicker">Evaluación aeróbica</span>
+      <h2 id="aerobicModalTitle"></h2>
+      <div id="aerobicModalText" class="aerobic-modal-text"></div>
+      <button class="btn aerobic-modal-action" type="button" data-close-aerobic-modal>Cerrar</button>
+    </div>
+  </div>
 
   <!-- JS PRINCIPAL -->
   <script src="app.js"></script>

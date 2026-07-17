@@ -1,4 +1,5 @@
 let currentSlide = 0;
+let isAssessmentSubmitting = false;
 let activeExerciseFilter = "Todos";
 let selectedRoutineWeek = "Semana 1";
 let selectedRoutineDay = "Lunes";
@@ -8,6 +9,8 @@ const defaultUsers = {
   "usuario@test.com": { password: "1234", role: "user", name: "Usuario" },
   "admin@test.com": { password: "admin", role: "admin", name: "Entrenador" }
 };
+
+const allowedPlanTypes = ["Plan personal", "Plan grupal", "Plan APP"];
 
 function $(id) {
   return document.getElementById(id);
@@ -37,9 +40,15 @@ function createUser() {
   const name = $("newUserName")?.value.trim();
   const email = $("newUserEmail")?.value.trim();
   const password = $("newUserPassword")?.value.trim();
+  const planType = $("newUserPlanType")?.value;
 
   if (!name || !email || !password) {
     alert("Completa todos los campos");
+    return;
+  }
+
+  if (!planType) {
+    alert("Selecciona el tipo de plan");
     return;
   }
 
@@ -56,6 +65,7 @@ function createUser() {
   password,
   role: "user",
   name,
+  planType,
   createdAt: new Date().toISOString(),
   expiresAt: addDaysToDate(33)
 };
@@ -65,6 +75,7 @@ function createUser() {
   $("newUserName").value = "";
   $("newUserEmail").value = "";
   $("newUserPassword").value = "";
+  $("newUserPlanType").value = "";
 
   renderAdminData();
 
@@ -121,6 +132,37 @@ function goToPage(pageId) {
   });
 
   if ($(pageId)) $(pageId).classList.remove("hidden");
+  document.body.classList.toggle("admin-panel-active", pageId === "adminPage");
+  syncMobilePrimaryNavigation(pageId);
+}
+
+function syncMobilePrimaryNavigation(pageId) {
+  const navigation = $("mobilePrimaryNav");
+  if (!navigation) return;
+
+  const isUserSession = localStorage.getItem("currentUser") && localStorage.getItem("currentRole") === "user";
+  const isApplicationPage = ["dashboardPage", "profilePage", "exercisePage", "physioPage"].includes(pageId);
+  navigation.classList.toggle("hidden", !(isUserSession && isApplicationPage));
+
+  navigation.querySelectorAll("[data-mobile-page]").forEach(button => {
+    const isActive = button.dataset.mobilePage === pageId;
+    button.classList.toggle("active", isActive);
+    if (isActive) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+function navigateToRoutine() {
+  renderUserExercises();
+  goToPage("exercisePage");
+}
+
+function navigateToProfile() {
+  goToPage("profilePage");
+}
+
+function navigateToTherapies() {
+  goToPage("physioPage");
 }
 
 /* CUESTIONARIO */
@@ -140,10 +182,165 @@ function showSlide(index) {
     $("nextBtn").textContent =
       index === slides.length - 1 ? "Enviar" : "Siguiente";
   }
+
+  const questionNumber = index + 1;
+  const progress = Math.round((questionNumber / slides.length) * 100);
+
+  if ($("assessmentProgressText")) {
+    $("assessmentProgressText").textContent = `Pregunta ${questionNumber} de ${slides.length}`;
+  }
+
+  if ($("assessmentProgressPercent")) {
+    $("assessmentProgressPercent").textContent = `${progress}%`;
+  }
+
+  if ($("assessmentProgressFill")) {
+    $("assessmentProgressFill").style.width = `${progress}%`;
+  }
 }
 
-function nextSlide() {
+function getSelectedAssessmentValue(name) {
+  return document.querySelector(`input[name="${name}"]:checked`)?.value || "";
+}
+
+function validateCurrentAssessmentSlide() {
+  const currentSlideElement = document.querySelectorAll(".slide")[currentSlide];
+  const question = currentSlideElement?.dataset.question;
+
+  if (!question || !getSelectedAssessmentValue(question)) {
+    alert("Selecciona una opción antes de continuar");
+    return false;
+  }
+
+  if (question === "hasInjury" && getSelectedAssessmentValue(question) === "true") {
+    if (!$("injuryDescription")?.value.trim()) {
+      alert("Describe brevemente tu lesión o condición médica");
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function getAssessmentData() {
+  const hasInjury = getSelectedAssessmentValue("hasInjury") === "true";
+
+  return {
+    goal: getSelectedAssessmentValue("goal"),
+    previousTraining: getSelectedAssessmentValue("previousTraining"),
+    trainingDays: getSelectedAssessmentValue("trainingDays"),
+    sessionDuration: getSelectedAssessmentValue("sessionDuration"),
+    gymExperience: getSelectedAssessmentValue("gymExperience"),
+    physicalActivity: getSelectedAssessmentValue("physicalActivity"),
+    hasInjury,
+    injuryDescription: hasInjury ? ($("injuryDescription")?.value.trim() || "") : ""
+  };
+}
+
+function toggleInjuryDescription() {
+  const hasInjury = getSelectedAssessmentValue("hasInjury") === "true";
+  $("injuryDescriptionWrap")?.classList.toggle("hidden", !hasInjury);
+
+  if (!hasInjury && $("injuryDescription")) {
+    $("injuryDescription").value = "";
+  }
+}
+
+function showAssessmentConfirmation() {
+  document.querySelector(".assessment-header")?.classList.add("hidden");
+  document.querySelectorAll(".assessment-slide").forEach(slide => {
+    slide.classList.add("hidden");
+  });
+  document.querySelector("#questionnairePage > .btn-row")?.classList.add("hidden");
+  $("assessmentConfirmation")?.classList.remove("hidden");
+}
+
+function saveAssessmentResponses(currentUser) {
+  const users = getUsers();
+  const user = users[currentUser] || {};
+  const assessment = getAssessmentData();
+  const questionnaireKey = `questionnaire_${currentUser}`;
+  const profileKey = `profile_${currentUser}`;
+  const previousQuestionnaire = localStorage.getItem(questionnaireKey);
+  const previousProfile = localStorage.getItem(profileKey);
+  const savedQuestionnaire = JSON.parse(previousQuestionnaire) || {};
+  const savedProfile = JSON.parse(previousProfile) || {};
+  const completedAt = new Date().toISOString();
+
+  const questionnaire = {
+    ...savedQuestionnaire,
+    ...assessment,
+    objetivo: assessment.goal,
+    completed: true,
+    completedAt
+  };
+
+  const profile = {
+    ...savedProfile,
+    name: savedProfile.name || user.name || "",
+    age: savedProfile.age || "",
+    height: savedProfile.height || "",
+    weight: savedProfile.weight || "",
+    email: savedProfile.email || currentUser,
+    createdAt: savedProfile.createdAt || user.createdAt || "",
+    expiresAt: savedProfile.expiresAt || user.expiresAt || "",
+    ...assessment
+  };
+
+  const questionnaireJSON = JSON.stringify(questionnaire);
+  const profileJSON = JSON.stringify(profile);
+
+  try {
+    localStorage.setItem(questionnaireKey, questionnaireJSON);
+    localStorage.setItem(profileKey, profileJSON);
+
+    if (
+      localStorage.getItem(questionnaireKey) !== questionnaireJSON ||
+      localStorage.getItem(profileKey) !== profileJSON
+    ) {
+      throw new Error("No fue posible verificar los datos guardados");
+    }
+  } catch (error) {
+    if (previousQuestionnaire === null) localStorage.removeItem(questionnaireKey);
+    else localStorage.setItem(questionnaireKey, previousQuestionnaire);
+
+    if (previousProfile === null) localStorage.removeItem(profileKey);
+    else localStorage.setItem(profileKey, previousProfile);
+
+    throw error;
+  }
+
+  return { questionnaire, profile };
+}
+
+function startAssessmentProcessing(duration = 2400) {
+  const fill = $("assessmentProcessingFill");
+  const percentage = $("assessmentProcessingPercent");
+
+  if (fill) fill.style.width = "0%";
+  if (percentage) percentage.textContent = "0%";
+
+  return new Promise(resolve => {
+    const startedAt = performance.now();
+
+    function updateProgress(now) {
+      const progress = Math.min(100, Math.round(((now - startedAt) / duration) * 100));
+
+      if (fill) fill.style.width = `${progress}%`;
+      if (percentage) percentage.textContent = `${progress}%`;
+
+      if (progress < 100) requestAnimationFrame(updateProgress);
+      else resolve();
+    }
+
+    requestAnimationFrame(updateProgress);
+  });
+}
+
+async function nextSlide() {
   const slides = document.querySelectorAll(".slide");
+
+  if (!validateCurrentAssessmentSlide()) return;
 
   if (currentSlide < slides.length - 1) {
     currentSlide++;
@@ -152,30 +349,42 @@ function nextSlide() {
   }
 
   const currentUser = localStorage.getItem("currentUser");
-  const objetivo = document.querySelector('input[name="objetivo"]:checked');
 
   if (!currentUser) {
     alert("No hay usuario activo");
     return;
   }
 
-  if (!objetivo) {
-    alert("Selecciona un objetivo principal antes de continuar");
+  if (isAssessmentSubmitting) return;
+
+  isAssessmentSubmitting = true;
+  if ($("nextBtn")) {
+    $("nextBtn").disabled = true;
+    $("nextBtn").textContent = "Guardando...";
+  }
+  $("assessmentSaveError")?.classList.add("hidden");
+
+  try {
+    saveAssessmentResponses(currentUser);
+  } catch (error) {
+    console.error("No se pudo guardar la evaluación:", error);
+    if ($("assessmentSaveError")) {
+      $("assessmentSaveError").textContent =
+        "No se pudo guardar la evaluación. Revisa el espacio disponible e inténtalo nuevamente.";
+      $("assessmentSaveError").classList.remove("hidden");
+    }
+    if ($("nextBtn")) {
+      $("nextBtn").disabled = false;
+      $("nextBtn").textContent = "Enviar";
+    }
+    isAssessmentSubmitting = false;
     return;
   }
 
-  const questionnaire = {
-    objetivo: objetivo.value,
-    completed: true,
-    completedAt: new Date().toLocaleString()
-  };
-
-  localStorage.setItem(
-    `questionnaire_${currentUser}`,
-    JSON.stringify(questionnaire)
-  );
-
-  alert("Cuestionario enviado. Ya no podrá modificarse.");
+  loadProfile();
+  renderAdminData();
+  showAssessmentConfirmation();
+  await startAssessmentProcessing();
   goToPage("profilePage");
 }
 
@@ -295,6 +504,59 @@ async function restoreSession() {
 
 /* PERFIL */
 
+const aerobicTestInformation = {
+  cooper: {
+    title: "Prueba de Cooper",
+    text: `Esta sencilla prueba permite obtener información sobre tu capacidad aeróbica. Consiste en correr durante 12 minutos intentando mantener un ritmo constante y recorrer la mayor distancia posible.
+
+Al repetirla periódicamente podrás comprobar tu evolución con la rutina de entrenamiento y estimar de manera indirecta tu consumo máximo de oxígeno (VO₂ máx.), lo que ayuda a adaptar las cargas de entrenamiento.
+
+Registra la distancia total recorrida en kilómetros.`
+  },
+  vam: {
+    title: "Prueba de VAM — Velocidad Aeróbica Máxima",
+    text: `La VAM es la Velocidad Aeróbica Máxima. No es una prueba de esfuerzo por sí sola, sino una métrica que se obtiene mediante un test progresivo.
+
+Permite conocer la velocidad máxima que un corredor puede sostener utilizando su máxima capacidad de absorción y aprovechamiento de oxígeno (VO₂ máx.).
+
+El test suele realizarse en una pista de atletismo, aumentando progresivamente la velocidad hasta el agotamiento. El resultado permite establecer ritmos de entrenamiento personalizados y evaluar el progreso.
+
+Registra el resultado en kilómetros por hora.`
+  }
+};
+
+let aerobicModalTrigger = null;
+
+function getAerobicResult(value, unit) {
+  if (value === undefined || value === null || value === "") return "Sin registrar";
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 0) return "Sin registrar";
+  return `${value} ${unit}`;
+}
+
+function openAerobicTestModal(testType, trigger = null) {
+  const modal = $("aerobicInfoModal");
+  const information = aerobicTestInformation[testType];
+  if (!modal || !information) return;
+
+  aerobicModalTrigger = trigger;
+  $("aerobicModalTitle").textContent = information.title;
+  $("aerobicModalText").textContent = information.text;
+  modal.classList.remove("hidden");
+  document.body.classList.add("aerobic-modal-open");
+  $("closeAerobicModal")?.focus();
+}
+
+function closeAerobicTestModal() {
+  const modal = $("aerobicInfoModal");
+  if (!modal || modal.classList.contains("hidden")) return;
+
+  modal.classList.add("hidden");
+  document.body.classList.remove("aerobic-modal-open");
+  aerobicModalTrigger?.focus();
+  aerobicModalTrigger = null;
+}
+
 function saveProfile() {
   const currentUser = localStorage.getItem("currentUser");
 
@@ -304,13 +566,31 @@ function saveProfile() {
   }
 
   const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${currentUser}`));
+  const savedProfile = JSON.parse(localStorage.getItem(`profile_${currentUser}`)) || {};
+  const user = getUsers()[currentUser] || {};
+  const cooperDistance = $("cooperDistance")?.value.trim() || "";
+  const vamSpeed = $("vamSpeed")?.value.trim() || "";
+
+  const hasInvalidCooperResult = cooperDistance && (!Number.isFinite(Number(cooperDistance)) || Number(cooperDistance) < 0);
+  const hasInvalidVamResult = vamSpeed && (!Number.isFinite(Number(vamSpeed)) || Number(vamSpeed) < 0);
+
+  if (hasInvalidCooperResult || hasInvalidVamResult) {
+    alert("Ingresa resultados válidos y sin números negativos");
+    return;
+  }
 
   const profile = {
+    ...savedProfile,
     name: $("pName")?.value || "",
     age: $("pAge")?.value || "",
     weight: $("pWeight")?.value || "",
     height: $("pHeight")?.value || "",
-    objetivo: questionnaire?.objetivo || ""
+    email: savedProfile.email || currentUser,
+    createdAt: savedProfile.createdAt || user.createdAt || "",
+    expiresAt: savedProfile.expiresAt || user.expiresAt || "",
+    goal: savedProfile.goal || questionnaire?.goal || questionnaire?.objetivo || "",
+    cooperDistance,
+    vamSpeed
   };
 
   localStorage.setItem(`profile_${currentUser}`, JSON.stringify(profile));
@@ -336,6 +616,11 @@ function loadProfile() {
     if ($("pAge")) $("pAge").value = profile.age || "";
     if ($("pWeight")) $("pWeight").value = profile.weight || "";
     if ($("pHeight")) $("pHeight").value = profile.height || "";
+    if ($("cooperDistance")) $("cooperDistance").value = profile.cooperDistance ?? "";
+    if ($("vamSpeed")) $("vamSpeed").value = profile.vamSpeed ?? "";
+  } else {
+    if ($("cooperDistance")) $("cooperDistance").value = "";
+    if ($("vamSpeed")) $("vamSpeed").value = "";
   }
 
   showProfilePhoto();
@@ -363,7 +648,7 @@ function renderProfileCard() {
       <h2>${profile?.name || "Tu nombre"}</h2>
 
       <p class="profile-objective">
-        ${questionnaire?.objetivo || "Objetivo pendiente"}
+        ${profile?.goal || questionnaire?.goal || questionnaire?.objetivo || "Objetivo pendiente"}
       </p>
 
       <div class="profile-stats">
@@ -382,6 +667,29 @@ function renderProfileCard() {
           <span>Altura</span>
         </div>
       </div>
+
+      <section class="profile-aerobic-section" aria-labelledby="profileAerobicTitle">
+        <div class="profile-aerobic-heading">
+          <span>Rendimiento</span>
+          <h3 id="profileAerobicTitle">Evaluaciones aeróbicas</h3>
+        </div>
+        <div class="profile-aerobic-grid">
+          <article class="profile-aerobic-result">
+            <div class="profile-aerobic-result-title">
+              <span>Prueba de Cooper</span>
+              <button class="aerobic-info-btn" type="button" data-aerobic-info="cooper" aria-label="Información sobre la Prueba de Cooper">i</button>
+            </div>
+            <strong>${escapeHTML(getAerobicResult(profile?.cooperDistance, "km"))}</strong>
+          </article>
+          <article class="profile-aerobic-result">
+            <div class="profile-aerobic-result-title">
+              <span>Prueba de VAM</span>
+              <button class="aerobic-info-btn" type="button" data-aerobic-info="vam" aria-label="Información sobre la Prueba de VAM">i</button>
+            </div>
+            <strong>${escapeHTML(getAerobicResult(profile?.vamSpeed, "km/h"))}</strong>
+          </article>
+        </div>
+      </section>
     </div>
   `;
 }
@@ -626,22 +934,59 @@ function editExerciseTitle(exerciseId) {
   renderUserExercises();
 }
 
-function renderExerciseSelect() {
+function getSelectedExerciseCategory() {
+  return $("exerciseCategoryFilter")?.value || "Todos";
+}
+
+function renderExerciseCategoryFilter() {
+  const filter = $("exerciseCategoryFilter");
+  if (!filter) return;
+
+  const selectedCategory = filter.value || "Todos";
+  const categories = [...new Set(
+    getExerciseLibrary().map(exercise =>
+      exercise.category?.trim() || "Sin categoría"
+    )
+  )].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+
+  filter.replaceChildren(
+    new Option("Todos los grupos", "Todos"),
+    ...categories.map(category => new Option(category, category))
+  );
+
+  filter.value = categories.includes(selectedCategory)
+    ? selectedCategory
+    : "Todos";
+}
+
+function renderExerciseSelect(category = getSelectedExerciseCategory()) {
   const select = $("exerciseSelect");
   if (!select) return;
 
   const library = getExerciseLibrary();
+  const selectedExerciseId = select.value;
+  const filteredExercises = category === "Todos"
+    ? library
+    : library.filter(exercise =>
+        (exercise.category?.trim() || "Sin categoría") === category
+      );
 
-  if (library.length === 0) {
-    select.innerHTML = `<option value="">No hay ejercicios</option>`;
+  if (filteredExercises.length === 0) {
+    select.innerHTML = `<option value="">No hay ejercicios en este grupo</option>`;
+    select.disabled = true;
     return;
   }
 
-  select.innerHTML = library.map(exercise => `
+  select.disabled = false;
+  select.innerHTML = filteredExercises.map(exercise => `
     <option value="${exercise.id}">
       ${exercise.category || "Sin categoría"} - ${exercise.title} (${exercise.type})
     </option>
   `).join("");
+
+  if (filteredExercises.some(exercise => String(exercise.id) === selectedExerciseId)) {
+    select.value = selectedExerciseId;
+  }
 }
 
 function deleteExerciseFromLibrary(exerciseId) {
@@ -913,28 +1258,97 @@ function renderSelectedUserProfile() {
   const profile = JSON.parse(localStorage.getItem(`profile_${userEmail}`));
   const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${userEmail}`));
   const profilePhoto = localStorage.getItem(`profilePhoto_${userEmail}`);
+  const selectedUser = getUsers()[userEmail] || {};
+  const assessmentValue = (property, fallback = "No contestado") =>
+    profile?.[property] || questionnaire?.[property] || fallback;
+  const hasInjury = profile?.hasInjury ?? questionnaire?.hasInjury;
+  const injuryLabel = hasInjury === true ? "Sí" : hasInjury === false ? "No" : "No contestado";
+  const personalDetails = [
+    { icon: "👤", label: "Nombre", value: profile?.name || selectedUser.name || "No cargado" },
+    { icon: "✉️", label: "Correo electrónico", value: userEmail },
+    { icon: "◇", label: "Tipo de plan", value: selectedUser.planType || "Sin asignar" },
+    { icon: "🎂", label: "Edad", value: profile?.age || "No cargada" },
+    { icon: "⚖️", label: "Peso", value: profile?.weight ? `${profile.weight} kg` : "No cargado" },
+    { icon: "↕️", label: "Estatura", value: profile?.height || "No cargada" }
+  ];
+  const assessmentDetails = [
+    { icon: "🎯", label: "Objetivo", value: assessmentValue("goal", questionnaire?.objetivo || "No contestado") },
+    { icon: "🏋️", label: "Entrenamiento previo", value: assessmentValue("previousTraining") },
+    { icon: "📅", label: "Días disponibles", value: assessmentValue("trainingDays") },
+    { icon: "⏱️", label: "Tiempo por sesión", value: assessmentValue("sessionDuration") },
+    { icon: "💪", label: "Nivel de experiencia", value: assessmentValue("gymExperience") },
+    { icon: "❤️", label: "Actividad física", value: assessmentValue("physicalActivity") },
+    { icon: "🩺", label: "Lesión", value: injuryLabel },
+    { icon: "🏃", label: "Prueba de Cooper", value: getAerobicResult(profile?.cooperDistance, "km") },
+    { icon: "⚡", label: "Prueba de VAM", value: getAerobicResult(profile?.vamSpeed, "km/h") }
+  ];
 
   container.innerHTML = `
-    <div class="media-card">
-      ${
-        profilePhoto
-          ? `<img src="${profilePhoto}" class="profile-photo" alt="Foto de perfil">`
-          : "<p>Sin foto de perfil</p>"
-      }
+    <div class="admin-user-profile">
+      <section class="admin-profile-card admin-profile-personal-card" aria-labelledby="adminPersonalTitle">
+        <header class="admin-profile-card-heading">
+          <span class="admin-profile-eyebrow">Perfil del cliente</span>
+          <h4 id="adminPersonalTitle">Información personal</h4>
+        </header>
 
-      <p><strong>Usuario:</strong> ${userEmail}</p>
-      <p><strong>Nombre:</strong> ${profile?.name || "No cargado"}</p>
-      <p><strong>Edad:</strong> ${profile?.age || "No cargada"}</p>
-      <p><strong>Peso:</strong> ${profile?.weight || "No cargado"} kg</p>
-      <p><strong>Altura:</strong> ${profile?.height || "No cargada"}</p>
+        <div class="admin-profile-avatar-wrap">
+          ${profilePhoto
+            ? `<img src="${profilePhoto}" class="admin-profile-photo" alt="Foto de ${escapeHTML(profile?.name || selectedUser.name || userEmail)}">`
+            : `<div class="admin-profile-photo admin-profile-photo-placeholder" role="img" aria-label="Sin foto de perfil">👤</div>`
+          }
+        </div>
 
-      <hr>
+        <div class="admin-personal-details">
+          ${personalDetails.map(detail => `
+            <div class="admin-personal-detail">
+              <span class="admin-detail-icon" aria-hidden="true">${detail.icon}</span>
+              <div>
+                <span class="admin-detail-label">${detail.label}</span>
+                <strong class="admin-detail-value">${escapeHTML(String(detail.value))}</strong>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </section>
 
-      <p><strong>Objetivo:</strong> ${questionnaire?.objetivo || "No contestado"}</p>
-      <p><strong>Cuestionario:</strong> ${
-        questionnaire?.completed ? "Completado y bloqueado" : "Pendiente"
-      }</p>
-      <p><strong>Fecha:</strong> ${questionnaire?.completedAt || "Sin fecha"}</p>
+      <section class="admin-profile-card admin-profile-assessment-card" aria-labelledby="adminAssessmentTitle">
+        <header class="admin-profile-card-heading admin-assessment-heading">
+          <div>
+            <span class="admin-profile-eyebrow">Datos para el entrenamiento</span>
+            <h4 id="adminAssessmentTitle">Evaluación Física Inicial</h4>
+          </div>
+          <span class="admin-assessment-status ${questionnaire?.completed ? "is-complete" : "is-pending"}">
+            ${questionnaire?.completed ? "Completada" : "Pendiente"}
+          </span>
+        </header>
+
+        <div class="admin-assessment-grid">
+          ${assessmentDetails.map(detail => `
+            <article class="admin-assessment-item">
+              <span class="admin-assessment-icon" aria-hidden="true">${detail.icon}</span>
+              <div>
+                <span class="admin-detail-label">${detail.label}</span>
+                <strong class="admin-detail-value">${escapeHTML(String(detail.value))}</strong>
+              </div>
+            </article>
+          `).join("")}
+
+          ${hasInjury === true ? `
+            <article class="admin-assessment-item admin-injury-description">
+              <span class="admin-assessment-icon" aria-hidden="true">📝</span>
+              <div>
+                <span class="admin-detail-label">Descripción de la lesión</span>
+                <strong class="admin-detail-value">${escapeHTML(assessmentValue("injuryDescription", "Sin descripción"))}</strong>
+              </div>
+            </article>
+          ` : ""}
+        </div>
+
+        <footer class="admin-assessment-footer">
+          <span>Estado: <strong>${questionnaire?.completed ? "Completado y bloqueado" : "Pendiente"}</strong></span>
+          <span>Fecha: <strong>${escapeHTML(questionnaire?.completedAt || "Sin fecha")}</strong></span>
+        </footer>
+      </section>
     </div>
   `;
 }
@@ -1330,7 +1744,7 @@ function renderSubscriptions() {
       a.daysRemaining - b.daysRemaining || a.email.localeCompare(b.email));
 
   if (!visibleUsers.length) {
-    list.innerHTML = '<tr><td class="subscription-empty" colspan="7">No hay usuarios en este estado.</td></tr>';
+    list.innerHTML = '<tr><td class="subscription-empty" colspan="8">No hay usuarios en este estado.</td></tr>';
     return;
   }
 
@@ -1339,6 +1753,17 @@ function renderSubscriptions() {
     <tr>
       <td data-label="Usuario">${escapeHTML(user.name || "Sin nombre")}</td>
       <td data-label="Correo">${escapeHTML(email)}</td>
+      <td class="subscription-plan" data-label="Tipo de plan">
+        <select
+          class="plan-type-select"
+          data-plan-email="${escapeHTML(email)}"
+          data-previous-plan="${escapeHTML(user.planType || "")}"
+          aria-label="Cambiar plan de ${escapeHTML(user.name || email)}"
+        >
+          <option value="" ${user.planType ? "" : "selected"} disabled>Sin asignar</option>
+          ${allowedPlanTypes.map(plan => `<option value="${plan}" ${user.planType === plan ? "selected" : ""}>${plan}</option>`).join("")}
+        </select>
+      </td>
       <td data-label="Fecha de inicio">${formatSubscriptionDate(user.createdAt)}</td>
       <td data-label="Fecha de vencimiento">${formatSubscriptionDate(user.expiresAt)}</td>
       <td data-label="Días restantes">${daysRemaining}</td>
@@ -1346,6 +1771,35 @@ function renderSubscriptions() {
       <td data-label="Acción">${status === "active" ? "—" : `<button class="btn renew-btn" type="button" data-renew-email="${escapeHTML(email)}">Renovar</button>`}</td>
     </tr>
   `).join("");
+}
+
+function updateUserPlanType(userEmail, newPlanType) {
+  const user = getUsers()[userEmail];
+
+  if (!user || user.role === "admin") {
+    alert("No se encontró el usuario");
+    return false;
+  }
+
+  if (!allowedPlanTypes.includes(newPlanType)) {
+    alert("Selecciona un tipo de plan válido");
+    return false;
+  }
+
+  const previousPlan = user.planType || "Sin asignar";
+  if (previousPlan === newPlanType) return true;
+
+  const userName = user.name || userEmail;
+  const confirmed = confirm(`¿Confirmas cambiar el plan de ${userName} de ${previousPlan} a ${newPlanType}?`);
+  if (!confirmed) return false;
+
+  const customUsers = JSON.parse(localStorage.getItem("users")) || {};
+  customUsers[userEmail] = { ...user, planType: newPlanType };
+  localStorage.setItem("users", JSON.stringify(customUsers));
+
+  renderSubscriptions();
+  if ($("userSelect")?.value === userEmail) renderSelectedUserProfile();
+  return true;
 }
 
 function renewSubscription(email) {
@@ -1381,6 +1835,7 @@ function contactTherapy() {
 function renderAdminData() {
   renderUserSelect();
   renderExerciseLibrary();
+  renderExerciseCategoryFilter();
   renderExerciseSelect();
   renderSelectedUserAssignments();
   renderSelectedUserProfile();
@@ -1390,14 +1845,55 @@ function renderAdminData() {
 }
 }
 
+function syncRoutineNavigationUI() {
+  if ($("mobileWeekLabel")) {
+    $("mobileWeekLabel").textContent = selectedRoutineWeek;
+  }
+
+  if ($("routineSubtitle")) {
+    $("routineSubtitle").textContent = `${selectedRoutineWeek} · ${selectedRoutineDay}`;
+  }
+
+  document.querySelectorAll(".week-btn, .mobile-week-option").forEach(button => {
+    button.classList.toggle("active", button.dataset.week === selectedRoutineWeek);
+  });
+
+  document.querySelectorAll(".day-btn, .mobile-day-btn").forEach(button => {
+    button.classList.toggle("active", button.dataset.day === selectedRoutineDay);
+  });
+}
+
+function selectRoutineWeek(week) {
+  selectedRoutineWeek = week;
+  syncRoutineNavigationUI();
+  renderUserExercises();
+}
+
+function selectRoutineDay(day) {
+  selectedRoutineDay = day;
+  syncRoutineNavigationUI();
+  renderUserExercises();
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
  await initializeExerciseLibrary();
 
+ document.addEventListener("click", event => {
+  const informationButton = event.target.closest("[data-aerobic-info]");
+  if (informationButton) {
+    openAerobicTestModal(informationButton.dataset.aerobicInfo, informationButton);
+    return;
+  }
+
+  if (event.target.closest("[data-close-aerobic-modal]")) closeAerobicTestModal();
+ });
+
+ document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeAerobicTestModal();
+ });
+
  if ($("cardWorkout")) {
-  $("cardWorkout").addEventListener("click", () => {
-    renderUserExercises();
-    goToPage("exercisePage");
-  });
+  $("cardWorkout").addEventListener("click", navigateToRoutine);
 }
 
 if ($("subscriptionFilter")) {
@@ -1411,18 +1907,41 @@ if ($("subscriptionsList")) {
     const button = event.target.closest("[data-renew-email]");
     if (button) renewSubscription(button.dataset.renewEmail);
   });
+
+  $("subscriptionsList").addEventListener("change", event => {
+    const planSelect = event.target.closest("[data-plan-email]");
+    if (!planSelect) return;
+
+    const previousPlan = planSelect.dataset.previousPlan || "";
+    const updated = updateUserPlanType(planSelect.dataset.planEmail, planSelect.value);
+    if (!updated) planSelect.value = previousPlan;
+  });
 }
 
 if ($("cardProfile")) {
-  $("cardProfile").addEventListener("click", () => {
-    goToPage("profilePage");
-  });
+  $("cardProfile").addEventListener("click", navigateToProfile);
 }
 
 if ($("cardTherapies")) {
-  $("cardTherapies").addEventListener("click", () => {
-    goToPage("physioPage");
+  $("cardTherapies").addEventListener("click", navigateToTherapies);
+}
+
+if ($("mobilePrimaryNav")) {
+  $("mobilePrimaryNav").addEventListener("click", event => {
+    const navigationButton = event.target.closest("[data-mobile-page]");
+    if (!navigationButton) return;
+
+    const actions = {
+      exercisePage: navigateToRoutine,
+      profilePage: navigateToProfile,
+      physioPage: navigateToTherapies
+    };
+    actions[navigationButton.dataset.mobilePage]?.();
   });
+}
+
+if ($("mobileNavLogout")) {
+  $("mobileNavLogout").addEventListener("click", logout);
 }
 
 if ($("btnGoProfile")) {
@@ -1446,6 +1965,10 @@ if ($("btnGoProfile")) {
     $("btnLogout").addEventListener("click", logout);
   }
 
+  if ($("adminNavLogout")) {
+    $("adminNavLogout").addEventListener("click", logout);
+  }
+
   if ($("modeSwitch")) {
     $("modeSwitch").addEventListener("click", toggleMode);
   }
@@ -1457,6 +1980,10 @@ if ($("btnGoProfile")) {
   if ($("prevBtn")) {
     $("prevBtn").addEventListener("click", prevSlide);
   }
+
+  document.querySelectorAll('input[name="hasInjury"]').forEach(input => {
+    input.addEventListener("change", toggleInjuryDescription);
+  });
 
   if ($("btnSaveProfile")) {
     $("btnSaveProfile").addEventListener("click", saveProfile);
@@ -1531,6 +2058,12 @@ if ($("btnGoProfile")) {
     $("btnAssignExerciseToUser").addEventListener("click", assignExerciseToUser);
   }
 
+  if ($("exerciseCategoryFilter")) {
+    $("exerciseCategoryFilter").addEventListener("change", () => {
+      renderExerciseSelect();
+    });
+  }
+
   if ($("userSelect")) {
     $("userSelect").addEventListener("change", () => {
       renderSelectedUserAssignments();
@@ -1559,34 +2092,43 @@ if ($("btnGoProfile")) {
 
   document.querySelectorAll(".day-btn").forEach(button => {
   button.addEventListener("click", () => {
-    selectedRoutineDay = button.dataset.day;
-
-    document.querySelectorAll(".day-btn").forEach(btn => {
-      btn.classList.remove("active");
-    });
-
-    button.classList.add("active");
-
-    renderUserExercises();
+    selectRoutineDay(button.dataset.day);
   });
 });
 
 document.querySelectorAll(".week-btn").forEach(button => {
   button.addEventListener("click", () => {
-    selectedRoutineWeek = button.dataset.week;
-
-    document.querySelectorAll(".week-btn").forEach(btn => {
-      btn.classList.remove("active");
-    });
-
-    button.classList.add("active");
-
-    renderUserExercises();
+    selectRoutineWeek(button.dataset.week);
   });
 });
+
+document.querySelectorAll(".mobile-day-btn").forEach(button => {
+  button.addEventListener("click", () => {
+    selectRoutineDay(button.dataset.day);
+  });
+});
+
+document.querySelectorAll(".mobile-week-option").forEach(button => {
+  button.addEventListener("click", () => {
+    selectRoutineWeek(button.dataset.week);
+    $("mobileWeekOptions")?.classList.remove("open");
+    $("mobileWeekToggle")?.setAttribute("aria-expanded", "false");
+  });
+});
+
+if ($("mobileWeekToggle")) {
+  $("mobileWeekToggle").addEventListener("click", () => {
+    const isOpen = $("mobileWeekOptions")?.classList.toggle("open");
+    $("mobileWeekToggle").setAttribute("aria-expanded", String(Boolean(isOpen)));
+  });
+}
+
 if ($("btnRoutineMenu")) {
   $("btnRoutineMenu").addEventListener("click", () => {
-    $("routineNav").classList.toggle("open");
+    const mobileLayout = window.matchMedia("(max-width: 600px)").matches;
+    const target = mobileLayout ? $("mobileRoutineNav") : $("routineNav");
+    const isOpen = target?.classList.toggle("open");
+    $("btnRoutineMenu").setAttribute("aria-expanded", String(Boolean(isOpen)));
   });
 }
 
@@ -1616,6 +2158,7 @@ document.querySelectorAll(".admin-tab-btn").forEach(button => {
 
   showSlide(currentSlide);
   renderAdminData();
+  syncRoutineNavigationUI();
   renderUserExercises();
   await restoreSession();
 });
