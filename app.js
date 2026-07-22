@@ -3,6 +3,16 @@ let isAssessmentSubmitting = false;
 let activeExerciseFilter = "Todos";
 let selectedRoutineWeek = "Semana 1";
 let selectedRoutineDay = "Lunes";
+const initialSupabaseAuthCallback = (() => {
+  const query = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const type = query.get("type") || hash.get("type");
+  const errorDescription = query.get("error_description") || hash.get("error_description");
+  return {
+    active: ["invite", "recovery"].includes(type) || query.has("code") || hash.has("access_token") || Boolean(errorDescription),
+    errorDescription
+  };
+})();
 
 
 const defaultUsers = {
@@ -11,6 +21,7 @@ const defaultUsers = {
 };
 
 const allowedPlanTypes = ["Plan personal", "Plan grupal", "Plan APP"];
+let supabaseUsersCache = {};
 
 function $(id) {
   return document.getElementById(id);
@@ -20,7 +31,22 @@ function $(id) {
 
 function getUsers() {
   const savedUsers = JSON.parse(localStorage.getItem("users")) || {};
-  return { ...defaultUsers, ...savedUsers };
+  return { ...defaultUsers, ...savedUsers, ...supabaseUsersCache };
+}
+
+async function refreshSupabaseUsers() {
+  if (!window.TrainerSupabase?.isConfigured()) return { data: null, error: null };
+  const result = await window.TrainerSupabase.profiles.getClients();
+  if (result.error) return result;
+  supabaseUsersCache = Object.fromEntries((result.data || []).map(profile => [
+    profile.email,
+    {
+      role: profile.role,
+      name: profile.full_name || profile.email,
+      supabaseId: profile.id
+    }
+  ]));
+  return result;
 }
 
 function addDaysToDate(days) {
@@ -36,11 +62,90 @@ function isUserExpired(user) {
   return new Date() > new Date(user.expiresAt);
 }
 
-function createUser() {
+async function createUser() {
   const name = $("newUserName")?.value.trim();
   const email = $("newUserEmail")?.value.trim();
   const password = $("newUserPassword")?.value.trim();
   const planType = $("newUserPlanType")?.value;
+
+  const supabaseMode = window.TrainerSupabase?.isConfigured();
+
+  if (supabaseMode) {
+    if (!name || !email || !planType) {
+      alert(!planType ? "Selecciona el tipo de plan" : "Completa nombre y correo");
+      return;
+    }
+
+    const sessionResult = await window.TrainerSupabase.auth.getSession();
+    const session = sessionResult.data?.session;
+    if (sessionResult.error || !session) {
+      alert("Tu sesión expiró. Inicia sesión nuevamente.");
+      return;
+    }
+
+    const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
+    const actor = profileResult.data;
+    if (profileResult.error || !actor?.active) {
+      alert(profileResult.error?.message || "No se pudo verificar tu perfil de entrenador");
+      return;
+    }
+    if (!["admin", "trainer"].includes(actor.role)) {
+      alert("No tienes permisos para crear usuarios");
+      return;
+    }
+
+    const startDate = new Date().toISOString().slice(0, 10);
+    const expirationDate = addDaysToDate(33).slice(0, 10);
+    // La contraseña visible pertenece al modo local heredado. En Supabase se ignora:
+    // el cliente define su propia contraseña desde el correo de invitación.
+    const invitation = await window.TrainerSupabase.auth.inviteUser({
+      email: email.toLowerCase(),
+      fullName: name,
+      planType,
+      startDate,
+      expirationDate
+    });
+
+    if (invitation.error) {
+      const message = invitation.error.message || "No se pudo enviar la invitación";
+      const status = invitation.error.status;
+      if (/already|registered|exists|duplicate|ya existe|ya registrado/i.test(message)) {
+        alert("Ese correo ya está registrado");
+      } else if (status === 401 || /session|sesión|jwt|token/i.test(message)) {
+        alert("Tu sesión expiró. Inicia sesión nuevamente.");
+      } else if (status === 403 || /no autorizado|permisos|administrador|entrenador/i.test(message)) {
+        alert("No tienes permisos de administrador o entrenador para invitar usuarios");
+      } else if (/failed to fetch|network|red|fetch/i.test(message)) {
+        alert("No se pudo conectar con Supabase. Revisa tu conexión e inténtalo nuevamente.");
+      } else {
+        alert(`No se pudo enviar la invitación: ${message}`);
+      }
+      return;
+    }
+
+    if (invitation.data?.success !== true || !invitation.data?.userId) {
+      alert(`No se pudo enviar la invitación: ${invitation.data?.message || "Supabase no confirmó la creación del usuario"}`);
+      return;
+    }
+
+    $("newUserName").value = "";
+    $("newUserEmail").value = "";
+    $("newUserPassword").value = "";
+    $("newUserPlanType").value = "";
+
+    const usersResult = await refreshSupabaseUsers();
+    if (usersResult.error) {
+      console.error("La invitación se envió, pero no se pudo actualizar la lista:", usersResult.error.message);
+    } else {
+      renderAdminData();
+    }
+
+    const warnings = invitation.data?.warnings || [];
+    alert(warnings.length
+      ? `Invitación enviada correctamente. Advertencia: ${warnings.join(" ")}`
+      : "Invitación enviada correctamente. El usuario recibirá un correo para crear su contraseña.");
+    return;
+  }
 
   if (!name || !email || !password) {
     alert("Completa todos los campos");
@@ -119,6 +224,7 @@ function deleteSelectedUser() {
 function goToPage(pageId) {
   const pages = [
     "loginPage",
+    "passwordSetupPage",
     "dashboardPage",
     "questionnairePage",
     "profilePage",
@@ -134,6 +240,110 @@ function goToPage(pageId) {
   if ($(pageId)) $(pageId).classList.remove("hidden");
   document.body.classList.toggle("admin-panel-active", pageId === "adminPage");
   syncMobilePrimaryNavigation(pageId);
+}
+
+function showPasswordSetupMessage(message, type = "error") {
+  const element = $("passwordSetupMessage");
+  if (!element) return;
+  element.textContent = message;
+  element.classList.remove("hidden", "success");
+  if (type === "success") element.classList.add("success");
+}
+
+async function initializePasswordSetupFlow() {
+  if (!initialSupabaseAuthCallback.active) return false;
+
+  goToPage("passwordSetupPage");
+  const button = $("btnCreatePassword");
+  if (button) button.disabled = true;
+
+  if (!window.TrainerSupabase?.isConfigured()) {
+    showPasswordSetupMessage("Supabase no está configurado. Solicita un nuevo enlace al entrenador.");
+    return true;
+  }
+  if (initialSupabaseAuthCallback.errorDescription) {
+    showPasswordSetupMessage(`El enlace es inválido o expiró: ${initialSupabaseAuthCallback.errorDescription}`);
+    return true;
+  }
+
+  const { data, error } = await window.TrainerSupabase.getClient().auth.getSession();
+  if (error || !data?.session) {
+    showPasswordSetupMessage("El enlace de invitación es inválido o expiró. Solicita uno nuevo a tu entrenador.");
+    return true;
+  }
+
+  if (button) button.disabled = false;
+  $("newAccountPassword")?.focus();
+  return true;
+}
+
+async function createInvitedUserPassword() {
+  const passwordInput = $("newAccountPassword");
+  const confirmationInput = $("confirmAccountPassword");
+  const button = $("btnCreatePassword");
+  const password = passwordInput?.value || "";
+  const confirmation = confirmationInput?.value || "";
+
+  if (!password || !confirmation) {
+    showPasswordSetupMessage("Completa ambos campos de contraseña.");
+    return;
+  }
+  if (password.length < 8) {
+    showPasswordSetupMessage("La contraseña debe tener al menos 8 caracteres.");
+    return;
+  }
+  if (password !== confirmation) {
+    showPasswordSetupMessage("Las contraseñas no coinciden.");
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "Creando contraseña...";
+  try {
+    const client = window.TrainerSupabase.getClient();
+    const { data: sessionData, error: sessionError } = await client.auth.getSession();
+    if (sessionError || !sessionData?.session) {
+      showPasswordSetupMessage("La invitación expiró. Solicita un nuevo enlace a tu entrenador.");
+      return;
+    }
+
+    const { data, error } = await client.auth.updateUser({ password });
+    if (error || !data?.user) {
+      showPasswordSetupMessage(error?.message || "No se pudo crear la contraseña. Solicita un nuevo enlace.");
+      return;
+    }
+
+    passwordInput.value = "";
+    confirmationInput.value = "";
+    window.history.replaceState({}, document.title, window.location.pathname);
+    showPasswordSetupMessage("Contraseña creada correctamente. Preparando tu cuenta...", "success");
+
+    const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
+    if (profileResult.error || !profileResult.data?.active) {
+      showPasswordSetupMessage(profileResult.error?.message || "La contraseña fue creada, pero el perfil todavía no está disponible.");
+      return;
+    }
+    const profile = profileResult.data;
+    const email = profile.email || data.user.email;
+    localStorage.setItem("currentUser", email);
+    localStorage.setItem("currentRole", profile.role);
+    await startSession(email, {
+      name: profile.full_name || email,
+      role: profile.role,
+      supabaseId: profile.id
+    });
+
+    const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${email}`));
+    if (questionnaire?.completed) {
+      goToPage("dashboardPage");
+      renderDashboard();
+    }
+  } catch {
+    showPasswordSetupMessage("No se pudo crear la contraseña. Revisa tu conexión o solicita un nuevo enlace.");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Crear contraseña";
+  }
 }
 
 function syncMobilePrimaryNavigation(pageId) {
@@ -365,7 +575,13 @@ async function nextSlide() {
   $("assessmentSaveError")?.classList.add("hidden");
 
   try {
-    saveAssessmentResponses(currentUser);
+    const savedAssessment = saveAssessmentResponses(currentUser);
+    if (window.TrainerSupabase?.isConfigured()) {
+      const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
+      if (profileResult.error) throw new Error(profileResult.error.message);
+      const result = await window.TrainerSupabase.questionnaires.saveAssessment(profileResult.data.id, savedAssessment.questionnaire);
+      if (result.error) throw new Error(result.error.message);
+    }
   } catch (error) {
     console.error("No se pudo guardar la evaluación:", error);
     if ($("assessmentSaveError")) {
@@ -410,12 +626,34 @@ function toggleMode() {
 
 /* LOGIN */
 
-function login() {
+async function login() {
   const email = $("emailInput")?.value.trim();
   const password = $("passwordInput")?.value.trim();
 
   if (!email || !password) {
     alert("Completa correo y contraseña");
+    return;
+  }
+
+  // Supabase es autoritativo cuando está configurado. El modo local solo permite
+  // probar la transición y no debe usarse como autenticación de producción.
+  if (window.TrainerSupabase?.isConfigured()) {
+    const signedIn = await window.TrainerSupabase.auth.signIn(email, password);
+    if (signedIn.error) {
+      alert(signedIn.error.message || "Correo o contraseña incorrectos");
+      return;
+    }
+    const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
+    if (profileResult.error || !profileResult.data?.active) {
+      await window.TrainerSupabase.auth.signOut();
+      alert(profileResult.error?.message || "Tu acceso no está activo");
+      return;
+    }
+    const profile = profileResult.data;
+    const compatibilityUser = { name: profile.full_name || email, role: profile.role, supabaseId: profile.id };
+    localStorage.setItem("currentUser", email); // caché temporal; RLS nunca confía en este valor
+    localStorage.setItem("currentRole", profile.role); // solo presentación heredada
+    await startSession(email, compatibilityUser);
     return;
   }
 
@@ -441,13 +679,34 @@ function login() {
 async function startSession(email, user) {
   await initializeExerciseLibrary();
 
+  if (window.TrainerSupabase?.isConfigured() && user.supabaseId) {
+    const assessmentResult = await window.TrainerSupabase.questionnaires.getAssessment(user.supabaseId);
+    if (!assessmentResult.error && assessmentResult.data) {
+      const a = assessmentResult.data;
+      localStorage.setItem(`questionnaire_${email}`, JSON.stringify({
+        goal: a.goal, previousTraining: a.previous_training, trainingDays: a.training_days,
+        sessionDuration: a.session_duration, gymExperience: a.gym_experience,
+        physicalActivity: a.physical_activity, hasInjury: a.has_injury,
+        injuryDescription: a.injury_description, completed: a.completed, completedAt: a.completed_at
+      })); // caché temporal para renderizadores heredados
+    }
+  }
+
   if ($("whoami")) {
-    $("whoami").textContent = `${user.name} (${user.role})`;
+    const dataMode = window.TrainerSupabase?.mode === "supabase" ? "Supabase" : "Local (transición)";
+    $("whoami").textContent = `${user.name} (${user.role}) · ${dataMode}`;
     $("whoami").classList.remove("hidden");
   }
 
   if ($("btnLogout")) {
     $("btnLogout").classList.remove("hidden");
+  }
+
+  if (window.TrainerSupabase?.isConfigured() && ["admin", "trainer"].includes(user.role)) {
+    const usersResult = await refreshSupabaseUsers();
+    if (usersResult.error) {
+      console.error("No se pudo cargar la lista de usuarios desde Supabase:", usersResult.error.message);
+    }
   }
 
   loadProfile();
@@ -470,7 +729,11 @@ async function startSession(email, user) {
   }
 }
 
-function logout() {
+async function logout() {
+  if (window.TrainerSupabase?.isConfigured()) {
+    const result = await window.TrainerSupabase.auth.signOut();
+    if (result.error) console.error("No se pudo cerrar la sesión de Supabase:", result.error.message);
+  }
   localStorage.removeItem("currentUser");
   localStorage.removeItem("currentRole");
 
@@ -484,6 +747,27 @@ function logout() {
 }
 
 async function restoreSession() {
+  if (window.TrainerSupabase?.isConfigured()) {
+    const sessionResult = await window.TrainerSupabase.auth.getSession();
+    const session = sessionResult.data?.session;
+    if (!session) {
+      localStorage.removeItem("currentUser");
+      localStorage.removeItem("currentRole");
+      goToPage("loginPage");
+      return;
+    }
+    const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
+    if (profileResult.error || !profileResult.data?.active) {
+      await logout();
+      return;
+    }
+    const profile = profileResult.data;
+    const email = profile.email || session.user.email;
+    localStorage.setItem("currentUser", email);
+    localStorage.setItem("currentRole", profile.role);
+    await startSession(email, { name: profile.full_name || email, role: profile.role, supabaseId: profile.id });
+    return;
+  }
   const currentUser = localStorage.getItem("currentUser");
 
   if (!currentUser) {
@@ -743,6 +1027,18 @@ async function initializeExerciseLibrary() {
   if (exerciseLibraryInitialization) return exerciseLibraryInitialization;
 
   exerciseLibraryInitialization = (async () => {
+    if (window.TrainerSupabase?.isConfigured()) {
+      const result = await window.TrainerSupabase.exercises.listExercises();
+      if (!result.error) {
+        const library = result.data.map(exercise => ({ id: exercise.id, legacyId: exercise.legacy_id, category: exercise.category, title: exercise.title, type: exercise.media_type, url: exercise.media_url }));
+        saveExerciseLibrary(library); // caché de lectura temporal para renderizadores heredados
+        console.log(`${library.length} ejercicios cargados desde Supabase`);
+        return library;
+      }
+      console.error("Error al cargar la biblioteca desde Supabase:", result.error.message);
+      return [];
+    }
+
     const savedLibrary = getExerciseLibrary();
 
     if (savedLibrary.length > 0) return savedLibrary;
@@ -999,7 +1295,18 @@ function deleteExerciseFromLibrary(exerciseId) {
   const assignments = getUserAssignments();
 
   Object.keys(assignments).forEach(userEmail => {
-    assignments[userEmail] = assignments[userEmail].filter(id => id !== exerciseId);
+    const days = assignments[userEmail];
+    if (Array.isArray(days)) {
+      assignments[userEmail] = days.filter(item => (item?.exerciseId ?? item) !== exerciseId);
+      return;
+    }
+    if (days && typeof days === "object") {
+      Object.keys(days).forEach(day => {
+        if (Array.isArray(days[day])) {
+          days[day] = days[day].filter(item => (item?.exerciseId ?? item) !== exerciseId);
+        }
+      });
+    }
   });
 
   saveUserAssignments(assignments);
@@ -1876,7 +2183,9 @@ function selectRoutineDay(day) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
- await initializeExerciseLibrary();
+ const passwordSetupFlowActive = await initializePasswordSetupFlow();
+ document.body.classList.remove("auth-routing");
+ if (!passwordSetupFlowActive) await initializeExerciseLibrary();
 
  document.addEventListener("click", event => {
   const informationButton = event.target.closest("[data-aerobic-info]");
@@ -1959,6 +2268,10 @@ if ($("btnGoProfile")) {
 
   if ($("btnLogin")) {
     $("btnLogin").addEventListener("click", login);
+  }
+
+  if ($("btnCreatePassword")) {
+    $("btnCreatePassword").addEventListener("click", createInvitedUserPassword);
   }
 
   if ($("btnLogout")) {
@@ -2155,6 +2468,8 @@ document.querySelectorAll(".admin-tab-btn").forEach(button => {
     if (target === "subscriptionsSection") renderSubscriptions();
   });
 });
+
+  if (passwordSetupFlowActive) return;
 
   showSlide(currentSlide);
   renderAdminData();
