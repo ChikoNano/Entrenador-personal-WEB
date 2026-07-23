@@ -2,6 +2,9 @@ let currentSlide = 0;
 let isAssessmentSubmitting = false;
 let pendingProfilePhotoFile = null;
 let pendingProfilePhotoPreviewUrl = "";
+let supabaseAuthStateSubscription = null;
+let supabaseSessionLoadPromise = null;
+let initializedSupabaseUserId = "";
 let activeExerciseFilter = "Todos";
 let selectedRoutineWeek = "Semana 1";
 let selectedRoutineDay = "Lunes";
@@ -737,17 +740,10 @@ async function login() {
       alert(signedIn.error.message || "Correo o contraseña incorrectos");
       return;
     }
-    const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
-    if (profileResult.error || !profileResult.data?.active) {
-      await window.TrainerSupabase.auth.signOut();
-      alert(profileResult.error?.message || "Tu acceso no está activo");
-      return;
+    const session = signedIn.data?.session;
+    if (!session?.user?.id || !(await loadRestoredSupabaseSession(session))) {
+      alert("No se pudo cargar tu perfil");
     }
-    const profile = profileResult.data;
-    const compatibilityUser = { name: profile.full_name || email, role: profile.role, supabaseId: profile.id };
-    localStorage.setItem("currentUser", email); // caché temporal; RLS nunca confía en este valor
-    localStorage.setItem("currentRole", profile.role); // solo presentación heredada
-    await startSession(email, compatibilityUser);
     return;
   }
 
@@ -770,7 +766,7 @@ async function login() {
   startSession(email, user);
 }
 
-async function startSession(email, user) {
+async function startSession(email, user, authenticatedUserId = "") {
   await initializeExerciseLibrary();
 
   if (window.TrainerSupabase?.isConfigured() && user.supabaseId) {
@@ -803,9 +799,12 @@ async function startSession(email, user) {
     }
   }
 
-  loadProfile();
-  renderUserExercises();
+  await loadProfile(authenticatedUserId || user.supabaseId || "", false);
+  await renderUserExercises();
+  showProfilePhoto();
+  renderProfileCard();
   renderAdminData();
+  syncRoutineNavigationUI();
 
   if (user.role === "admin") {
     goToPage("adminPage");
@@ -830,6 +829,7 @@ async function logout() {
   }
   localStorage.removeItem("currentUser");
   localStorage.removeItem("currentRole");
+  initializedSupabaseUserId = "";
 
   if ($("emailInput")) $("emailInput").value = "";
   if ($("passwordInput")) $("passwordInput").value = "";
@@ -840,26 +840,85 @@ async function logout() {
   goToPage("loginPage");
 }
 
-async function restoreSession() {
-  if (window.TrainerSupabase?.isConfigured()) {
-    const sessionResult = await window.TrainerSupabase.auth.getSession();
-    const session = sessionResult.data?.session;
-    if (!session) {
-      localStorage.removeItem("currentUser");
-      localStorage.removeItem("currentRole");
-      goToPage("loginPage");
-      return;
-    }
-    const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
+async function loadRestoredSupabaseSession(session) {
+  const userId = session?.user?.id;
+  if (!userId) return false;
+  if (initializedSupabaseUserId === userId) return true;
+  if (supabaseSessionLoadPromise) return supabaseSessionLoadPromise;
+
+  supabaseSessionLoadPromise = (async () => {
+    console.log("Sesión restaurada:", Boolean(session));
+    console.log("UUID:", userId);
+
+    const client = window.TrainerSupabase.requireClient();
+    const profileResult = await client
+      .from("profiles")
+      .select("*")
+      .eq("id", userId)
+      .single();
+
     if (profileResult.error || !profileResult.data?.active) {
+      console.error("No se pudo restaurar el perfil:", profileResult.error);
       await logout();
-      return;
+      return false;
     }
+
     const profile = profileResult.data;
+    console.log("Perfil recibido:", profile);
     const email = profile.email || session.user.email;
     localStorage.setItem("currentUser", email);
     localStorage.setItem("currentRole", profile.role);
-    await startSession(email, { name: profile.full_name || email, role: profile.role, supabaseId: profile.id });
+
+    await startSession(
+      email,
+      { name: profile.full_name || email, role: profile.role, supabaseId: profile.id },
+      userId
+    );
+
+    initializedSupabaseUserId = userId;
+    console.log("Pantalla renderizada:", profile.role === "admin" ? "adminPage" : "perfil/cuestionario");
+    return true;
+  })().finally(() => {
+    supabaseSessionLoadPromise = null;
+  });
+
+  return supabaseSessionLoadPromise;
+}
+
+function ensureSupabaseAuthStateListener() {
+  if (supabaseAuthStateSubscription || !window.TrainerSupabase?.isConfigured()) return;
+
+  const authListener = window.TrainerSupabase.auth.onAuthStateChange((event, session) => {
+    if (!["INITIAL_SESSION", "SIGNED_IN"].includes(event) || !session?.user?.id) return;
+    window.setTimeout(() => {
+      loadRestoredSupabaseSession(session).catch(error => {
+        console.error("Error al reintentar la restauración de sesión:", error);
+      });
+    }, 0);
+  });
+  supabaseAuthStateSubscription = authListener?.data?.subscription || authListener;
+}
+
+async function restoreSession() {
+  if (window.TrainerSupabase?.isConfigured()) {
+    console.log("Inicio restauración");
+    ensureSupabaseAuthStateListener();
+
+    const sessionResult = await window.TrainerSupabase.auth.getSession();
+    if (sessionResult.error) {
+      console.error("Error al restaurar sesión:", sessionResult.error);
+    }
+
+    const session = sessionResult.data?.session;
+    if (session?.user?.id) {
+      await loadRestoredSupabaseSession(session);
+      return;
+    }
+
+    // INITIAL_SESSION o SIGNED_IN reintentará la carga si la sesión llega después.
+    localStorage.removeItem("currentUser");
+    localStorage.removeItem("currentRole");
+    goToPage("loginPage");
     return;
   }
   const currentUser = localStorage.getItem("currentUser");
@@ -986,11 +1045,82 @@ async function saveProfile() {
   alert("Perfil guardado correctamente");
 }
 
-function loadProfile() {
+async function loadProfile(authenticatedUserId = "", shouldRender = true) {
   const currentUser = localStorage.getItem("currentUser");
   if (!currentUser) return;
 
-  const profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`));
+  let profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`));
+
+  if (window.TrainerSupabase?.isConfigured()) {
+    try {
+      const client = window.TrainerSupabase.requireClient();
+      let profileUserId = authenticatedUserId;
+      let authenticatedUser = null;
+      if (!profileUserId) {
+        const authResult = await client.auth.getUser();
+        console.log("auth.getUser():", authResult);
+        authenticatedUser = authResult.data?.user || null;
+        profileUserId = authenticatedUser?.id || "";
+        console.log("user.id obtenido:", profileUserId || null);
+        if (authResult.error) {
+          console.error("error completo auth.getUser():", authResult.error);
+          return;
+        }
+      }
+
+      if (!profileUserId) {
+        console.error("No se obtuvo user.id para cargar el perfil");
+        return;
+      }
+
+      console.log("Consulta a public.profiles:", {
+        table: "profiles",
+        filter: { id: profileUserId }
+      });
+      const profileResult = await client
+        .from("profiles")
+        .select("*")
+        .eq("id", profileUserId)
+        .single();
+
+      console.log("Resultado completo public.profiles:", profileResult);
+      console.error("Error completo public.profiles:", profileResult.error);
+
+      if (profileResult.error) return;
+
+      const supabaseProfile = profileResult.data;
+      console.log("Profile encontrado:", supabaseProfile);
+      if (!supabaseProfile) return;
+
+      profile = {
+        ...profile,
+        name: supabaseProfile.full_name || "",
+        age: supabaseProfile.age ?? "",
+        weight: supabaseProfile.weight ?? "",
+        height: supabaseProfile.height ?? "",
+        email: supabaseProfile.email || authenticatedUser?.email || currentUser,
+        goal: supabaseProfile.goal || "",
+        cooperDistance: supabaseProfile.cooper_distance_km ?? "",
+        vamSpeed: supabaseProfile.vam_kmh ?? ""
+      };
+      localStorage.setItem(`profile_${currentUser}`, JSON.stringify(profile));
+
+      if (supabaseProfile.avatar_path && window.TrainerSupabase.storage) {
+        const avatarResult = await window.TrainerSupabase.storage.getAvatarUrl(
+          supabaseProfile.avatar_path
+        );
+        if (!avatarResult.error && avatarResult.data?.signedUrl) {
+          localStorage.setItem(
+            `profilePhoto_${currentUser}`,
+            avatarResult.data.signedUrl
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Error completo al cargar el perfil:", error);
+      return;
+    }
+  }
 
   if (profile) {
     if ($("pName")) $("pName").value = profile.name || "";
@@ -1004,8 +1134,10 @@ function loadProfile() {
     if ($("vamSpeed")) $("vamSpeed").value = "";
   }
 
-  showProfilePhoto();
-  renderProfileCard();
+  if (shouldRender) {
+    showProfilePhoto();
+    renderProfileCard();
+  }
 }
 
 function renderProfileCard() {
@@ -2674,7 +2806,6 @@ function selectRoutineDay(day) {
 document.addEventListener("DOMContentLoaded", async () => {
  const passwordSetupFlowActive = await initializePasswordSetupFlow();
  document.body.classList.remove("auth-routing");
- if (!passwordSetupFlowActive) await initializeExerciseLibrary();
 
  document.addEventListener("click", event => {
   const informationButton = event.target.closest("[data-aerobic-info]");
@@ -2964,9 +3095,5 @@ document.querySelectorAll(".admin-tab-btn").forEach(button => {
 
   if (passwordSetupFlowActive) return;
 
-  showSlide(currentSlide);
-  renderAdminData();
-  syncRoutineNavigationUI();
-  renderUserExercises();
   await restoreSession();
 });
