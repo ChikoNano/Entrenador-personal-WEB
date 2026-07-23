@@ -5,8 +5,6 @@ let pendingProfilePhotoPreviewUrl = "";
 let supabaseAuthStateSubscription = null;
 let supabaseSessionLoadPromise = null;
 let initializedSupabaseUserId = "";
-let currentSupabaseProfile = null;
-let currentSupabaseAvatarUrl = "";
 let activeExerciseFilter = "Todos";
 let selectedRoutineWeek = "Semana 1";
 let selectedRoutineDay = "Lunes";
@@ -1192,17 +1190,27 @@ async function loadProfile(authenticatedUserId = "", shouldRender = true) {
   const currentUser = localStorage.getItem("currentUser");
   if (!currentUser) return;
 
-  const supabaseMode = window.TrainerSupabase?.isConfigured();
-  let profile = supabaseMode
-    ? null
-    : JSON.parse(localStorage.getItem(`profile_${currentUser}`));
+  let profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`));
 
-  if (supabaseMode) {
+  if (window.TrainerSupabase?.isConfigured()) {
     try {
       const client = window.TrainerSupabase.requireClient();
-      const profileUserId = authenticatedUserId || initializedSupabaseUserId;
+      let profileUserId = authenticatedUserId;
+      let authenticatedUser = null;
       if (!profileUserId) {
-        console.warn("Perfil omitido: la sesión todavía no proporcionó un UUID");
+        const authResult = await client.auth.getUser();
+        console.log("auth.getUser():", authResult);
+        authenticatedUser = authResult.data?.user || null;
+        profileUserId = authenticatedUser?.id || "";
+        console.log("user.id obtenido:", profileUserId || null);
+        if (authResult.error) {
+          console.error("error completo auth.getUser():", authResult.error);
+          return;
+        }
+      }
+
+      if (!profileUserId) {
+        console.error("No se obtuvo user.id para cargar el perfil");
         return;
       }
 
@@ -1225,49 +1233,28 @@ async function loadProfile(authenticatedUserId = "", shouldRender = true) {
       console.log("Profile encontrado:", supabaseProfile);
       if (!supabaseProfile) return;
 
-      const fullName = supabaseProfile.full_name || supabaseProfile.name || "Tu nombre";
-      const age = supabaseProfile.age ?? supabaseProfile.edad ?? null;
-      const weight = supabaseProfile.weight ?? supabaseProfile.peso ?? null;
-      const height = supabaseProfile.height ?? supabaseProfile.estatura ?? null;
-      const goal = supabaseProfile.goal || supabaseProfile.objetivo || "";
-      const cooper = supabaseProfile.cooper_distance_km ?? supabaseProfile.cooper ?? null;
-      const vam = supabaseProfile.vam_kmh ?? supabaseProfile.vam ?? null;
-      const avatarPath =
-        supabaseProfile.avatar_path ||
-        supabaseProfile.avatar_url ||
-        supabaseProfile.photo ||
-        supabaseProfile.profilePhoto ||
-        "";
-
-      console.log("Campos reales del perfil:", Object.keys(supabaseProfile));
-      console.log("Datos mapeados del perfil:", {
-        fullName, age, weight, height, goal, cooper, vam,
-        avatarPath: supabaseProfile.avatar_path
-      });
-
-      currentSupabaseProfile = supabaseProfile;
       profile = {
-        ...supabaseProfile,
-        name: fullName,
-        age,
-        weight,
-        height,
-        goal,
-        cooperDistance: cooper,
-        vamSpeed: vam
+        ...profile,
+        name: supabaseProfile.full_name || "",
+        age: supabaseProfile.age ?? "",
+        weight: supabaseProfile.weight ?? "",
+        height: supabaseProfile.height ?? "",
+        email: supabaseProfile.email || authenticatedUser?.email || currentUser,
+        goal: supabaseProfile.goal || "",
+        cooperDistance: supabaseProfile.cooper_distance_km ?? "",
+        vamSpeed: supabaseProfile.vam_kmh ?? ""
       };
+      localStorage.setItem(`profile_${currentUser}`, JSON.stringify(profile));
 
-      currentSupabaseAvatarUrl = "";
-      if (avatarPath) {
-        if (/^(https?:|data:|blob:)/i.test(avatarPath)) {
-          currentSupabaseAvatarUrl = avatarPath;
-        } else if (window.TrainerSupabase.storage) {
-          const avatarResult = await window.TrainerSupabase.storage.getAvatarUrl(avatarPath);
-          if (avatarResult.error) {
-            console.error("No se pudo resolver avatar_path:", avatarResult.error);
-          } else {
-            currentSupabaseAvatarUrl = avatarResult.data?.signedUrl || "";
-          }
+      if (supabaseProfile.avatar_path && window.TrainerSupabase.storage) {
+        const avatarResult = await window.TrainerSupabase.storage.getAvatarUrl(
+          supabaseProfile.avatar_path
+        );
+        if (!avatarResult.error && avatarResult.data?.signedUrl) {
+          localStorage.setItem(
+            `profilePhoto_${currentUser}`,
+            avatarResult.data.signedUrl
+          );
         }
       }
     } catch (error) {
@@ -1300,25 +1287,9 @@ function renderProfileCard() {
 
   if (!currentUser || !container) return;
 
-  const supabaseMode = window.TrainerSupabase?.isConfigured();
-  const profile = supabaseMode
-    ? currentSupabaseProfile
-    : JSON.parse(localStorage.getItem(`profile_${currentUser}`));
-  const questionnaire = supabaseMode
-    ? null
-    : JSON.parse(localStorage.getItem(`questionnaire_${currentUser}`));
-  const fullName = profile?.full_name || profile?.name || "Tu nombre";
-  const age = profile?.age ?? profile?.edad ?? null;
-  const weight = profile?.weight ?? profile?.peso ?? null;
-  const height = profile?.height ?? profile?.estatura ?? null;
-  const goal = profile?.goal || profile?.objetivo || questionnaire?.goal || questionnaire?.objetivo || "";
-  const cooper = profile?.cooper_distance_km ?? profile?.cooperDistance ?? profile?.cooper ?? null;
-  const vam = profile?.vam_kmh ?? profile?.vamSpeed ?? profile?.vam ?? null;
-  const photo = pendingProfilePhotoPreviewUrl || (
-    supabaseMode
-      ? currentSupabaseAvatarUrl
-      : localStorage.getItem(`profilePhoto_${currentUser}`)
-  );
+  const profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`));
+  const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${currentUser}`));
+  const photo = pendingProfilePhotoPreviewUrl || localStorage.getItem(`profilePhoto_${currentUser}`);
 
   container.innerHTML = `
     <div class="profile-card-inner">
@@ -1328,25 +1299,25 @@ function renderProfileCard() {
           : `<div class="profile-placeholder">👤</div>`
       }
 
-      <h2>${fullName}</h2>
+      <h2>${profile?.name || "Tu nombre"}</h2>
 
       <p class="profile-objective">
-        ${goal || "Objetivo pendiente"}
+        ${profile?.goal || questionnaire?.goal || questionnaire?.objetivo || "Objetivo pendiente"}
       </p>
 
       <div class="profile-stats">
         <div>
-          <strong>${age ?? "--"}</strong>
+          <strong>${profile?.age || "--"}</strong>
           <span>Edad</span>
         </div>
 
         <div>
-          <strong>${weight ?? "--"} kg</strong>
+          <strong>${profile?.weight || "--"} kg</strong>
           <span>Peso</span>
         </div>
 
         <div>
-          <strong>${height ?? "--"}</strong>
+          <strong>${profile?.height || "--"}</strong>
           <span>Altura</span>
         </div>
       </div>
@@ -1362,14 +1333,14 @@ function renderProfileCard() {
               <span>Prueba de Cooper</span>
               <button class="aerobic-info-btn" type="button" data-aerobic-info="cooper" aria-label="Información sobre la Prueba de Cooper">i</button>
             </div>
-            <strong>${escapeHTML(getAerobicResult(cooper, "km"))}</strong>
+            <strong>${escapeHTML(getAerobicResult(profile?.cooperDistance, "km"))}</strong>
           </article>
           <article class="profile-aerobic-result">
             <div class="profile-aerobic-result-title">
               <span>Prueba de VAM</span>
               <button class="aerobic-info-btn" type="button" data-aerobic-info="vam" aria-label="Información sobre la Prueba de VAM">i</button>
             </div>
-            <strong>${escapeHTML(getAerobicResult(vam, "km/h"))}</strong>
+            <strong>${escapeHTML(getAerobicResult(profile?.vamSpeed, "km/h"))}</strong>
           </article>
         </div>
       </section>
@@ -1503,11 +1474,7 @@ function showProfilePhoto() {
 
   if (!currentUser || !preview) return;
 
-  const savedPhoto = pendingProfilePhotoPreviewUrl || (
-    window.TrainerSupabase?.isConfigured()
-      ? currentSupabaseAvatarUrl
-      : localStorage.getItem(`profilePhoto_${currentUser}`)
-  );
+  const savedPhoto = pendingProfilePhotoPreviewUrl || localStorage.getItem(`profilePhoto_${currentUser}`);
 
   if (!savedPhoto) {
     preview.classList.add("hidden");
