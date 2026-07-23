@@ -1093,6 +1093,7 @@ function clearPendingProfilePhotoPreview() {
 
 function previewSelectedProfilePhoto(event) {
   console.log("Change disparado");
+  const statusElement = document.getElementById("profilePhotoLabel");
   const file = event.target.files?.[0];
   if (!file) {
     console.warn("No se seleccionó archivo");
@@ -1102,16 +1103,11 @@ function previewSelectedProfilePhoto(event) {
   console.log("File encontrado:", file.name);
   console.log("Tipo:", file.type);
   console.log("Tamaño:", file.size);
+  if (statusElement) statusElement.textContent = "Foto de perfil · archivo seleccionado";
 
   if (!file.type?.startsWith("image/")) {
     event.target.value = "";
     alert("Selecciona una imagen válida");
-    return;
-  }
-
-  if (file.size > 5 * 1024 * 1024) {
-    event.target.value = "";
-    alert("La imagen debe pesar máximo 5 MB.");
     return;
   }
 
@@ -1120,6 +1116,7 @@ function previewSelectedProfilePhoto(event) {
   reader.onload = () => {
     console.log("FileReader onload");
     const previewUrl = reader.result;
+    if (statusElement) statusElement.textContent = "Foto de perfil · imagen leída";
 
     if (!previewUrl) {
       alert("No se pudo leer la imagen");
@@ -1137,6 +1134,7 @@ function previewSelectedProfilePhoto(event) {
     preview.classList.remove("hidden");
     preview.style.display = "block";
     console.log("Src actualizado:", Boolean(preview.src));
+    if (statusElement) statusElement.textContent = "Foto de perfil · vista previa aplicada";
 
     pendingProfilePhotoFile = file;
     pendingProfilePhotoPreviewUrl = previewUrl;
