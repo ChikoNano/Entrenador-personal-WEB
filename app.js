@@ -2298,10 +2298,17 @@ function updateProgressStats() {
   }
 }
 
-function updateSupabaseProgressStats(exercises, completedIds, hasProgressError = false) {
-  const completedCount = exercises.filter(item => completedIds.has(item.id)).length;
-  const total = exercises.length;
+function updateSupabaseProgressStats(exercises, completedIds, hasProgressError = false, weekNumber = null) {
+  const uniqueExercises = Array.from(
+    new Map(exercises.filter(item => item?.id).map(item => [item.id, item])).values()
+  );
+  const completedCount = uniqueExercises.filter(item => completedIds.has(item.id)).length;
+  const total = uniqueExercises.length;
   const percent = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+  console.log("[Progreso semanal] Semana seleccionada:", weekNumber);
+  console.log("[Progreso semanal] Total de ejercicios de la semana:", total);
+  console.log("[Progreso semanal] Completados de la semana:", completedCount);
+  console.log("[Progreso semanal] Porcentaje calculado:", percent);
   if ($("progressText")) {
     $("progressText").textContent = hasProgressError
       ? "No se pudo cargar el progreso"
@@ -2337,7 +2344,7 @@ async function renderSupabaseUserExercises(assignedVideos, assignedImages) {
     console.error("[Mi Rutina] Error de Supabase/RLS:", routinesResult.error.message);
     assignedVideos.innerHTML = `<p>No se pudo cargar tu rutina: ${escapeHTML(routinesResult.error.message)}</p>`;
     assignedImages.innerHTML = "";
-    updateSupabaseProgressStats([], new Set(), true);
+    updateSupabaseProgressStats([], new Set(), true, weekNumber);
     return;
   }
 
@@ -2346,19 +2353,30 @@ async function renderSupabaseUserExercises(assignedVideos, assignedImages) {
   console.log("[Mi Rutina] Rutina activa encontrada:", routines.length > 0);
   const allExercises = routines.flatMap(routine => routine.routine_exercises || []);
   console.log("[Mi Rutina] Cantidad de routine_exercises:", allExercises.length);
-  const selectedExercises = allExercises
-    .filter(item => Number(item.week_number) === weekNumber && item.day_name === day)
+  const weeklyExercises = Array.from(
+    new Map(
+      allExercises
+        .filter(item => Number(item.week_number) === weekNumber)
+        .map(item => [item.id, item])
+    ).values()
+  );
+  const selectedExercises = weeklyExercises
+    .filter(item => item.day_name === day)
     .sort((a, b) => Number(a.display_order || 0) - Number(b.display_order || 0));
 
   const completionsResult = await window.TrainerSupabase.progress.listOwnCompletions();
   const progressError = Boolean(completionsResult.error);
   if (progressError) console.error("[Mi Rutina] Error al cargar progreso:", completionsResult.error.message);
-  const completedIds = new Set((completionsResult.data || []).map(item => item.routine_exercise_id));
+  const completedIds = new Set(
+    (completionsResult.data || [])
+      .filter(item => Number(item.week_number) === weekNumber)
+      .map(item => item.routine_exercise_id)
+  );
 
   if (!selectedExercises.length) {
     assignedVideos.innerHTML = `<p>No tienes ejercicios asignados para ${escapeHTML(day)}.</p>`;
     assignedImages.innerHTML = "";
-    updateSupabaseProgressStats([], completedIds, progressError);
+    updateSupabaseProgressStats(weeklyExercises, completedIds, progressError, weekNumber);
     return;
   }
 
@@ -2408,7 +2426,7 @@ async function renderSupabaseUserExercises(assignedVideos, assignedImages) {
       media.closest(".exercise-media")?.querySelector(".assigned-media-fallback")?.classList.remove("hidden");
     });
   });
-  updateSupabaseProgressStats(selectedExercises, completedIds, progressError);
+  updateSupabaseProgressStats(weeklyExercises, completedIds, progressError, weekNumber);
 }
 
 async function renderUserExercises() {
