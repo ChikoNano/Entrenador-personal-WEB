@@ -13,9 +13,9 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const failure = (message: string, status: number, extra: Record<string, unknown> = {}) =>
   json({ success: false, message, ...extra }, status);
 
-const plans: Record<string, "personal" | "group" | "app"> = {
+const plans: Record<string, "personal" | "grupal" | "app"> = {
   personal: "personal", "plan personal": "personal",
-  group: "group", grupal: "group", "plan grupal": "group",
+  group: "grupal", grupal: "grupal", "plan grupal": "grupal",
   app: "app", "plan app": "app",
 };
 const normalizePlan = (value: unknown) => plans[String(value ?? "").trim().toLowerCase()];
@@ -144,7 +144,7 @@ Deno.serve(async (request) => {
 
     const { data: subscription, error: subscriptionError } = await supabaseAdmin.from("subscriptions").insert({
       user_id: userId, plan_type: planType, start_date: startDate,
-      expiration_date: expirationDate, created_by: actor.id,
+      expiration_date: expirationDate, status: "active", created_by: actor.id,
     }).select("id").single();
     console.info("[invite-user] Creación de subscription:", { subscriptionId: subscription?.id || null, error: subscriptionError?.message || null });
     if (subscriptionError || !subscription?.id) {

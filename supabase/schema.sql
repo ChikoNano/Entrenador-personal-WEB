@@ -4,7 +4,8 @@ create extension if not exists pgcrypto;
 create extension if not exists citext;
 
 do $$ begin create type public.app_role as enum ('admin','trainer','user'); exception when duplicate_object then null; end $$;
-do $$ begin create type public.plan_type as enum ('personal','group','app'); exception when duplicate_object then null; end $$;
+do $$ begin create type public.plan_type as enum ('personal','grupal','group','app'); exception when duplicate_object then null; end $$;
+alter type public.plan_type add value if not exists 'grupal';
 do $$ begin create type public.subscription_status as enum ('active','expired','cancelled','renewed'); exception when duplicate_object then null; end $$;
 do $$ begin create type public.exercise_media_type as enum ('video','image'); exception when duplicate_object then null; end $$;
 
@@ -244,4 +245,4 @@ create policy avatars_delete on storage.objects for delete to authenticated usin
 
 comment on column public.profiles.trainer_id is 'Permite varios entrenadores; admin actúa como entrenador en v1.';
 comment on column public.routine_exercises.week_number is 'Semana real de la rutina; UI actual usa 1..4 y el esquema admite más.';
-comment on type public.plan_type is 'personal=Plan personal, group=Plan grupal, app=Plan APP.';
+comment on type public.plan_type is 'personal=Plan personal, grupal=Plan grupal, group=valor legado de Plan grupal, app=Plan APP.';

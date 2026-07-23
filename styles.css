@@ -554,7 +554,17 @@ summary:focus-visible {
 }
 
 .hidden-file {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .custom-file-btn {
@@ -950,6 +960,33 @@ details[open] summary::after {
 .media-card video {
   max-width: 520px;
   margin-inline: auto;
+}
+
+.assigned-exercise-media {
+  width: 100%;
+  max-width: 520px;
+  margin: 1rem auto 0;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: #090b0e;
+}
+
+.assigned-exercise-media video,
+.assigned-exercise-media img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+  border-radius: inherit;
+  object-fit: contain;
+}
+
+.assigned-media-fallback {
+  margin: 0;
+  padding: 1.25rem;
+  color: var(--text-soft);
+  text-align: center;
 }
 
 .media-card,

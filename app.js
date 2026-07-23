@@ -1,5 +1,7 @@
 let currentSlide = 0;
 let isAssessmentSubmitting = false;
+let pendingProfilePhotoFile = null;
+let pendingProfilePhotoPreviewUrl = "";
 let activeExerciseFilter = "Todos";
 let selectedRoutineWeek = "Semana 1";
 let selectedRoutineDay = "Lunes";
@@ -21,6 +23,17 @@ const defaultUsers = {
 };
 
 const allowedPlanTypes = ["Plan personal", "Plan grupal", "Plan APP"];
+const subscriptionPlanOptions = [
+  { value: "personal", label: "Plan personal" },
+  { value: "grupal", label: "Plan grupal" },
+  { value: "app", label: "Plan APP" }
+];
+const getSubscriptionPlanCode = value => ({
+  personal: "personal", grupal: "grupal", group: "grupal", app: "app",
+  "Plan personal": "personal", "Plan grupal": "grupal", "Plan APP": "app"
+})[value] || "";
+const getSubscriptionPlanLabel = value =>
+  subscriptionPlanOptions.find(option => option.value === getSubscriptionPlanCode(value))?.label || "Sin asignar";
 let supabaseUsersCache = {};
 
 function $(id) {
@@ -34,25 +47,79 @@ function getUsers() {
   return { ...defaultUsers, ...savedUsers, ...supabaseUsersCache };
 }
 
+function getSelectedUserEmail() {
+  const select = $("userSelect");
+  if (!select?.value) return "";
+  return select.selectedOptions[0]?.dataset.email || select.value;
+}
+
+function getSelectedUserId() {
+  const select = $("userSelect");
+  if (!select?.value || !window.TrainerSupabase?.isConfigured()) return "";
+  return select.value;
+}
+
 async function refreshSupabaseUsers() {
   if (!window.TrainerSupabase?.isConfigured()) return { data: null, error: null };
-  const result = await window.TrainerSupabase.profiles.getClients();
-  if (result.error) return result;
-  supabaseUsersCache = Object.fromEntries((result.data || []).map(profile => [
-    profile.email,
-    {
+  const [profilesResult, subscriptionsResult] = await Promise.all([
+    window.TrainerSupabase.profiles.getClients(),
+    window.TrainerSupabase.subscriptions.listSubscriptions()
+  ]);
+  if (profilesResult.error) return profilesResult;
+  if (subscriptionsResult.error) return subscriptionsResult;
+
+  const subscriptionsByUser = new Map(
+    (subscriptionsResult.data || []).map(subscription => [subscription.user_id, subscription])
+  );
+  supabaseUsersCache = Object.fromEntries((profilesResult.data || []).map(profile => {
+    const subscription = subscriptionsByUser.get(profile.id);
+    return [profile.email, {
       role: profile.role,
       name: profile.full_name || profile.email,
-      supabaseId: profile.id
-    }
-  ]));
-  return result;
+      supabaseId: profile.id,
+      subscriptionId: subscription?.id || null,
+      planType: window.TrainerSupabase.subscriptions.getPlanLabel(subscription?.plan_type),
+      planTypeCode: getSubscriptionPlanCode(subscription?.plan_type),
+      createdAt: subscription?.start_date || null,
+      expiresAt: subscription?.expiration_date || null,
+      subscriptionStatus: subscription?.status || null
+    }];
+  }));
+  return { data: profilesResult.data, error: null };
 }
 
 function addDaysToDate(days) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   return date.toISOString();
+}
+
+async function repairSupabaseInitialSubscription(userEmail, planType, startDate, expirationDate) {
+  if (!window.TrainerSupabase?.isConfigured()) {
+    return { data: null, error: { message: "Supabase no está configurado" } };
+  }
+  const email = String(userEmail || "").trim().toLowerCase();
+  let user = getUsers()[email];
+  if (!user?.supabaseId) {
+    const refreshed = await refreshSupabaseUsers();
+    if (refreshed.error) return refreshed;
+    user = getUsers()[email];
+  }
+  if (!user?.supabaseId) {
+    return { data: null, error: { message: "No se encontró el perfil de Supabase" } };
+  }
+
+  const initialDate = startDate || new Date().toISOString().slice(0, 10);
+  const endDate = expirationDate || addDaysToDate(33).slice(0, 10);
+  const result = await window.TrainerSupabase.subscriptions.repairInitialSubscription(
+    user.supabaseId,
+    { planType, start_date: initialDate, expiration_date: endDate }
+  );
+  if (!result.error) {
+    await refreshSupabaseUsers();
+    renderAdminData();
+  }
+  return result;
 }
 
 function isUserExpired(user) {
@@ -187,8 +254,10 @@ async function createUser() {
   alert("Usuario creado correctamente");
 }
 
-function deleteSelectedUser() {
-  const userEmail = $("userSelect")?.value;
+async function deleteSelectedUser() {
+  const userEmail = getSelectedUserEmail();
+  const supabaseMode = window.TrainerSupabase?.isConfigured();
+  const userId = getSelectedUserId();
 
   if (!userEmail) {
     alert("Selecciona un usuario");
@@ -200,7 +269,32 @@ function deleteSelectedUser() {
     return;
   }
 
-  if (!confirm(`¿Eliminar usuario ${userEmail}?`)) return;
+  if (!confirm("¿Seguro que deseas eliminar este usuario? Esta acción no se puede deshacer.")) return;
+
+  if (supabaseMode) {
+    if (!userId) {
+      alert("No se encontró el UUID del usuario seleccionado");
+      return;
+    }
+
+    const result = await window.TrainerSupabase.auth.deleteUser(userId);
+    if (result.error || result.data?.success !== true || result.data?.userId !== userId) {
+      console.error("Error al eliminar usuario:", result.error || result.data);
+      alert(result.error?.message || result.data?.message || "No se pudo eliminar el usuario");
+      return;
+    }
+
+    const refreshed = await refreshSupabaseUsers();
+    if (refreshed.error) {
+      console.error("El usuario se eliminó, pero falló la actualización del panel:", refreshed.error);
+      alert(`El usuario fue eliminado, pero no se pudo actualizar el panel: ${refreshed.error.message}`);
+      return;
+    }
+
+    renderAdminData();
+    alert("Usuario eliminado correctamente");
+    return;
+  }
 
   const customUsers = JSON.parse(localStorage.getItem("users")) || {};
   delete customUsers[userEmail];
@@ -841,7 +935,7 @@ function closeAerobicTestModal() {
   aerobicModalTrigger = null;
 }
 
-function saveProfile() {
+async function saveProfile() {
   const currentUser = localStorage.getItem("currentUser");
 
   if (!currentUser) {
@@ -862,6 +956,9 @@ function saveProfile() {
     alert("Ingresa resultados válidos y sin números negativos");
     return;
   }
+
+  const photoResult = await saveProfilePhoto();
+  if (!photoResult) return;
 
   const profile = {
     ...savedProfile,
@@ -919,7 +1016,7 @@ function renderProfileCard() {
 
   const profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`));
   const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${currentUser}`));
-  const photo = localStorage.getItem(`profilePhoto_${currentUser}`);
+  const photo = pendingProfilePhotoPreviewUrl || localStorage.getItem(`profilePhoto_${currentUser}`);
 
   container.innerHTML = `
     <div class="profile-card-inner">
@@ -978,20 +1075,126 @@ function renderProfileCard() {
   `;
 }
 
-function saveProfilePhoto(file) {
-  const currentUser = localStorage.getItem("currentUser");
-  if (!currentUser || !file) return;
+function readProfilePhotoAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = event => resolve(event.target?.result || "");
+    reader.onerror = () => reject(new Error("No se pudo cargar la vista previa de la imagen."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function clearPendingProfilePhotoPreview() {
+  if (pendingProfilePhotoPreviewUrl) {
+    URL.revokeObjectURL(pendingProfilePhotoPreviewUrl);
+    pendingProfilePhotoPreviewUrl = "";
+  }
+}
+
+function previewSelectedProfilePhoto(event) {
+  console.log("Change disparado");
+  const file = event.target.files?.[0];
+  if (!file) {
+    console.warn("No se seleccionó archivo");
+    return;
+  }
+
+  console.log("File encontrado:", file.name);
+  console.log("Tipo:", file.type);
+  console.log("Tamaño:", file.size);
+
+  if (!file.type?.startsWith("image/")) {
+    event.target.value = "";
+    alert("Selecciona una imagen válida");
+    return;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    event.target.value = "";
+    alert("La imagen debe pesar máximo 5 MB.");
+    return;
+  }
 
   const reader = new FileReader();
 
-  reader.onload = function (e) {
-    localStorage.setItem(`profilePhoto_${currentUser}`, e.target.result);
-    showProfilePhoto();
+  reader.onload = () => {
+    console.log("FileReader onload");
+    const previewUrl = reader.result;
+
+    if (!previewUrl) {
+      alert("No se pudo leer la imagen");
+      return;
+    }
+
+    const preview = document.getElementById("profilePreview");
+    console.log("Elemento de vista previa encontrado:", Boolean(preview));
+    if (!preview) {
+      alert("No se pudo cargar la vista previa de la imagen");
+      return;
+    }
+
+    preview.src = previewUrl;
+    preview.classList.remove("hidden");
+    preview.style.display = "block";
+    console.log("Src actualizado:", Boolean(preview.src));
+
+    pendingProfilePhotoFile = file;
+    pendingProfilePhotoPreviewUrl = previewUrl;
+    window.pendingProfilePhotoFile = file;
+    window.pendingProfilePhotoPreview = previewUrl;
+
     renderProfileCard();
-    renderAdminData();
+    console.log("Vista previa actualizada correctamente");
+  };
+
+  reader.onerror = () => {
+    console.error("Error FileReader", reader.error);
+    alert("No se pudo cargar la vista previa de la imagen");
   };
 
   reader.readAsDataURL(file);
+}
+
+async function saveProfilePhoto() {
+  const currentUser = localStorage.getItem("currentUser");
+  const file = pendingProfilePhotoFile;
+  if (!file) return true;
+  if (!currentUser) return false;
+
+  try {
+    if (window.TrainerSupabase?.isConfigured()) {
+      const profileResult = await window.TrainerSupabase.profiles.getOwnProfile();
+      if (profileResult.error) throw new Error(profileResult.error.message);
+
+      const uploadResult = await window.TrainerSupabase.storage.uploadAvatar(
+        file,
+        profileResult.data?.avatar_path || null
+      );
+      if (uploadResult.error) throw new Error(uploadResult.error.message);
+
+      const urlResult = await window.TrainerSupabase.storage.getAvatarUrl(uploadResult.data.path);
+      if (urlResult.error) throw new Error(urlResult.error.message);
+      if (urlResult.data?.signedUrl) {
+        localStorage.setItem(`profilePhoto_${currentUser}`, urlResult.data.signedUrl);
+      }
+    } else {
+      const dataUrl = await readProfilePhotoAsDataUrl(file);
+      if (!dataUrl) throw new Error("No se pudo cargar la vista previa de la imagen.");
+      localStorage.setItem(`profilePhoto_${currentUser}`, dataUrl);
+    }
+
+    pendingProfilePhotoFile = null;
+    clearPendingProfilePhotoPreview();
+    if ($("profilePhoto")) $("profilePhoto").value = "";
+    showProfilePhoto();
+    renderProfileCard();
+    renderAdminData();
+    return true;
+  } catch (error) {
+    console.error("Error al guardar la foto de perfil:", error);
+    alert(error?.message || "No se pudo guardar la foto de perfil.");
+    return false;
+  }
 }
 
 function showProfilePhoto() {
@@ -1000,7 +1203,7 @@ function showProfilePhoto() {
 
   if (!currentUser || !preview) return;
 
-  const savedPhoto = localStorage.getItem(`profilePhoto_${currentUser}`);
+  const savedPhoto = pendingProfilePhotoPreviewUrl || localStorage.getItem(`profilePhoto_${currentUser}`);
 
   if (!savedPhoto) {
     preview.classList.add("hidden");
@@ -1383,7 +1586,10 @@ function renderUserSelect() {
   if (!select) return;
 
   const users = getUsers();
-  const userEmails = Object.keys(users).filter(email => users[email].role === "user");
+  const supabaseMode = window.TrainerSupabase?.isConfigured();
+  const userEmails = Object.keys(users).filter(email =>
+    users[email].role === "user" && (!supabaseMode || users[email].supabaseId)
+  );
 
   if (userEmails.length === 0) {
     select.innerHTML = `<option value="">No hay usuarios</option>`;
@@ -1391,7 +1597,7 @@ function renderUserSelect() {
   }
 
   select.innerHTML = userEmails.map(email => `
-    <option value="${email}">
+    <option value="${supabaseMode ? users[email].supabaseId : email}" data-email="${escapeHTML(email)}">
       ${users[email].name} - ${email}
     </option>
   `).join("");
@@ -1400,18 +1606,49 @@ function renderUserSelect() {
   renderSelectedUserProfile();
 }
 
-function assignExerciseToUser() {
-  const userEmail = $("userSelect")?.value;
+async function assignExerciseToUser() {
+  const supabaseMode = window.TrainerSupabase?.isConfigured();
+  const userEmail = getSelectedUserEmail();
+  const userId = getSelectedUserId();
   const day = $("routineDay")?.value;
-  const exerciseId = Number($("exerciseSelect")?.value);
-  const sets = $("exerciseSets")?.value;
-  const reps = $("exerciseReps")?.value;
-  const rest = $("exerciseRest")?.value;
+  const exerciseValue = $("exerciseSelect")?.value;
+  const setsValue = $("exerciseSets")?.value ?? "";
+  const repsValue = $("exerciseReps")?.value ?? "";
+  const restValue = $("exerciseRest")?.value ?? "";
+  const sets = Number(setsValue);
+  const reps = Number(repsValue);
+  const rest = Number(restValue);
+  const allowedDays = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
 
-  if (!userEmail || !day || !exerciseId || !sets || !reps || !rest) {
-    alert("Completa usuario, día, ejercicio, series, repeticiones y descanso");
+  if (!(supabaseMode ? userId : userEmail)) return alert("Selecciona un usuario");
+  if (!day || !allowedDays.includes(day)) return alert("Selecciona un día");
+  if (!exerciseValue) return alert("Selecciona un ejercicio");
+  if (setsValue === "" || !Number.isInteger(sets) || sets < 1) return alert("Ingresa una cantidad válida de series");
+  if (repsValue === "" || !Number.isInteger(reps) || reps < 1) return alert("Ingresa una cantidad válida de repeticiones");
+  if (restValue === "" || !Number.isInteger(rest) || rest < 0) return alert("Ingresa un descanso válido en segundos");
+
+  if (supabaseMode) {
+    const result = await window.TrainerSupabase.routines.assignExercise({
+      user_id: userId,
+      exercise_id: exerciseValue,
+      day_name: day,
+      sets,
+      repetitions: reps,
+      rest_seconds: rest
+    });
+    if (result.error) {
+      alert(`No se pudo asignar el ejercicio: ${result.error.message}`);
+      return;
+    }
+    $("exerciseSets").value = "";
+    $("exerciseReps").value = "";
+    $("exerciseRest").value = "";
+    await renderSelectedUserAssignments();
+    alert("Ejercicio asignado correctamente");
     return;
   }
+
+  const exerciseId = Number(exerciseValue);
 
   const assignments = getUserAssignments();
 
@@ -1438,7 +1675,7 @@ function assignExerciseToUser() {
 }
 
 function removeExerciseFromUser(dayKey, exerciseId) {
-  const userEmail = $("userSelect")?.value;
+  const userEmail = getSelectedUserEmail();
 
   if (!userEmail || !dayKey || !exerciseId) return;
 
@@ -1462,11 +1699,57 @@ function removeExerciseFromUser(dayKey, exerciseId) {
   renderUserExercises();
 }
 
-function renderSelectedUserAssignments() {
+async function renderSelectedUserAssignments() {
   const container = $("selectedUserAssignments");
-  const userEmail = $("userSelect")?.value;
+  const userEmail = getSelectedUserEmail();
 
   if (!container || !userEmail) return;
+
+  if (window.TrainerSupabase?.isConfigured()) {
+    const userId = getSelectedUserId();
+    if (!userId) {
+      container.innerHTML = "<p>Selecciona un usuario.</p>";
+      return;
+    }
+    const result = await window.TrainerSupabase.routines.listUserRoutines(userId);
+    if (result.error) {
+      container.innerHTML = `<p>No se pudieron cargar las asignaciones: ${escapeHTML(result.error.message)}</p>`;
+      return;
+    }
+    const exercises = (result.data || []).flatMap(routine =>
+      (routine.routine_exercises || []).map(item => ({ ...item, routineName: routine.name }))
+    );
+    container.innerHTML = exercises.length ? exercises.map(item => {
+      const exercise = Array.isArray(item.exercises) ? item.exercises[0] : item.exercises;
+      const mediaUrl = String(exercise?.media_url || "").trim();
+      const mediaType = exercise?.media_type;
+      const media = mediaUrl && mediaType === "video"
+        ? `<video controls preload="metadata" src="${escapeHTML(mediaUrl)}" data-assigned-media></video>`
+        : mediaUrl && mediaType === "image"
+          ? `<img src="${escapeHTML(mediaUrl)}" alt="${escapeHTML(exercise?.title || "Ejercicio asignado")}" loading="lazy" data-assigned-media>`
+          : "";
+      return `
+        <div class="media-card assigned-exercise-card">
+          <p><strong>${escapeHTML(exercise?.title || "Ejercicio")}</strong><br>
+          <small>${escapeHTML(exercise?.category || "Sin categoría")} · ${escapeHTML(item.routineName)} · Semana ${item.week_number} · ${escapeHTML(item.day_name)}</small></p>
+          <p>${item.sets} series | ${item.repetitions} reps | ${item.rest_seconds}s descanso</p>
+          <div class="assigned-exercise-media">
+            ${media}
+            <p class="assigned-media-fallback${media ? " hidden" : ""}">Vista previa no disponible</p>
+          </div>
+        </div>
+      `;
+    }).join("") : "<p>Este usuario no tiene ejercicios asignados.</p>";
+
+    container.querySelectorAll("[data-assigned-media]").forEach(media => {
+      media.addEventListener("error", () => {
+        media.classList.add("hidden");
+        media.closest(".assigned-exercise-media")
+          ?.querySelector(".assigned-media-fallback")?.classList.remove("hidden");
+      });
+    });
+    return;
+  }
 
   const library = getExerciseLibrary();
   const assignments = getUserAssignments();
@@ -1558,7 +1841,7 @@ if (!Array.isArray(validExercises) || validExercises.length === 0) {
 
 function renderSelectedUserProfile() {
   const container = $("selectedUserProfile");
-  const userEmail = $("userSelect")?.value;
+  const userEmail = getSelectedUserEmail();
 
   if (!container || !userEmail) return;
 
@@ -1740,12 +2023,132 @@ function updateProgressStats() {
   }
 }
 
-function renderUserExercises() {
-  const currentUser = localStorage.getItem("currentUser");
+function updateSupabaseProgressStats(exercises, completedIds, hasProgressError = false) {
+  const completedCount = exercises.filter(item => completedIds.has(item.id)).length;
+  const total = exercises.length;
+  const percent = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+  if ($("progressText")) {
+    $("progressText").textContent = hasProgressError
+      ? "No se pudo cargar el progreso"
+      : `${completedCount} de ${total} ejercicios completados`;
+  }
+  if ($("progressPercent")) $("progressPercent").textContent = hasProgressError ? "--" : `${percent}%`;
+  if ($("progressFill")) $("progressFill").style.width = hasProgressError ? "0%" : `${percent}%`;
+}
+
+async function toggleSupabaseExerciseCompleted(routineExerciseId, weekNumber, currentlyCompleted) {
+  const result = await window.TrainerSupabase.progress.setOwnCompletion(
+    routineExerciseId,
+    weekNumber,
+    !currentlyCompleted
+  );
+  if (result.error) {
+    console.error("[Mi Rutina] Error al actualizar progreso:", result.error.message);
+    alert(`No se pudo actualizar el progreso: ${result.error.message}`);
+    return;
+  }
+  await renderUserExercises();
+}
+
+async function renderSupabaseUserExercises(assignedVideos, assignedImages) {
+  const weekLabel = selectedRoutineWeek || "Semana 1";
+  const day = selectedRoutineDay || "Lunes";
+  const weekNumber = Number.parseInt(String(weekLabel).match(/\d+/)?.[0] || "1", 10);
+  console.log("[Mi Rutina] Semana seleccionada:", weekNumber);
+  console.log("[Mi Rutina] Día seleccionado:", day);
+
+  const routinesResult = await window.TrainerSupabase.routines.listOwnActiveRoutines();
+  if (routinesResult.error) {
+    console.error("[Mi Rutina] Error de Supabase/RLS:", routinesResult.error.message);
+    assignedVideos.innerHTML = `<p>No se pudo cargar tu rutina: ${escapeHTML(routinesResult.error.message)}</p>`;
+    assignedImages.innerHTML = "";
+    updateSupabaseProgressStats([], new Set(), true);
+    return;
+  }
+
+  const { userId, routines } = routinesResult.data;
+  console.log("[Mi Rutina] auth.uid obtenido:", userId);
+  console.log("[Mi Rutina] Rutina activa encontrada:", routines.length > 0);
+  const allExercises = routines.flatMap(routine => routine.routine_exercises || []);
+  console.log("[Mi Rutina] Cantidad de routine_exercises:", allExercises.length);
+  const selectedExercises = allExercises
+    .filter(item => Number(item.week_number) === weekNumber && item.day_name === day)
+    .sort((a, b) => Number(a.display_order || 0) - Number(b.display_order || 0));
+
+  const completionsResult = await window.TrainerSupabase.progress.listOwnCompletions();
+  const progressError = Boolean(completionsResult.error);
+  if (progressError) console.error("[Mi Rutina] Error al cargar progreso:", completionsResult.error.message);
+  const completedIds = new Set((completionsResult.data || []).map(item => item.routine_exercise_id));
+
+  if (!selectedExercises.length) {
+    assignedVideos.innerHTML = `<p>No tienes ejercicios asignados para ${escapeHTML(day)}.</p>`;
+    assignedImages.innerHTML = "";
+    updateSupabaseProgressStats([], completedIds, progressError);
+    return;
+  }
+
+  assignedVideos.innerHTML = `
+    <div class="routine-day">
+      <h3>${escapeHTML(weekLabel)} - ${escapeHTML(day)}</h3>
+      ${selectedExercises.map(item => {
+        const exercise = Array.isArray(item.exercises) ? item.exercises[0] : item.exercises;
+        const title = exercise?.title || "Ejercicio";
+        const mediaUrl = String(exercise?.media_url || "").trim();
+        const isCompleted = completedIds.has(item.id);
+        const media = mediaUrl && exercise?.media_type === "video"
+          ? `<video controls preload="metadata" src="${escapeHTML(mediaUrl)}" data-user-routine-media></video>`
+          : mediaUrl && exercise?.media_type === "image"
+            ? `<img src="${escapeHTML(mediaUrl)}" alt="${escapeHTML(title)}" loading="lazy" data-user-routine-media>`
+            : `<p class="assigned-media-fallback">Vista previa no disponible</p>`;
+        return `
+          <article class="exercise-card ${isCompleted ? "completed-card" : ""}">
+            <div class="exercise-media">
+              ${media}
+              ${mediaUrl ? '<p class="assigned-media-fallback hidden">Vista previa no disponible</p>' : ""}
+            </div>
+            <div class="exercise-info">
+              <div class="exercise-top">
+                <span class="exercise-category">${escapeHTML(exercise?.category || "Sin categoría")}</span>
+                <span class="exercise-status">${isCompleted ? "Completado" : "Pendiente"}</span>
+              </div>
+              <h3>${escapeHTML(title)}</h3>
+              <div class="exercise-metrics">
+                <span>${item.sets} series</span>
+                <span>${item.repetitions} reps</span>
+                <span>${item.rest_seconds}s descanso</span>
+              </div>
+              ${item.notes ? `<p>${escapeHTML(item.notes)}</p>` : ""}
+              <button class="complete-btn ${isCompleted ? "done" : ""}"
+                onclick="toggleSupabaseExerciseCompleted('${escapeHTML(item.id)}', ${weekNumber}, ${isCompleted})">
+                ${isCompleted ? "Completado" : "Marcar completado"}
+              </button>
+            </div>
+          </article>`;
+      }).join("")}
+    </div>`;
+  assignedImages.innerHTML = "";
+  assignedVideos.querySelectorAll("[data-user-routine-media]").forEach(media => {
+    media.addEventListener("error", () => {
+      media.classList.add("hidden");
+      media.closest(".exercise-media")?.querySelector(".assigned-media-fallback")?.classList.remove("hidden");
+    });
+  });
+  updateSupabaseProgressStats(selectedExercises, completedIds, progressError);
+}
+
+async function renderUserExercises() {
   const assignedVideos = $("assignedVideos");
   const assignedImages = $("assignedImages");
 
-  if (!currentUser || !assignedVideos || !assignedImages) return;
+  if (!assignedVideos || !assignedImages) return;
+  if (window.TrainerSupabase?.isConfigured()) {
+    await renderSupabaseUserExercises(assignedVideos, assignedImages);
+    return;
+  }
+
+  const currentUser = localStorage.getItem("currentUser");
+
+  if (!currentUser) return;
 
   const library = getExerciseLibrary();
   const assignments = getUserAssignments();
@@ -1830,7 +2233,7 @@ function renderUserExercises() {
 /* ADMIN */
 
 function updateSelectedUserLabel() {
-  const userEmail = $("userSelect")?.value;
+  const userEmail = getSelectedUserEmail();
 
   if ($("routineSelectedUserLabel")) {
     $("routineSelectedUserLabel").textContent = userEmail || "Ninguno";
@@ -1935,8 +2338,8 @@ const percent =
 function getDaysRemaining(expiresAt) {
   if (!expiresAt) return 0;
   const today = new Date();
-  const expiration = new Date(expiresAt);
-  if (Number.isNaN(expiration.getTime())) return 0;
+  const expiration = parseStoredDate(expiresAt);
+  if (!expiration) return 0;
   today.setHours(0, 0, 0, 0);
   expiration.setHours(0, 0, 0, 0);
   return Math.max(0, Math.ceil((expiration - today) / 86400000));
@@ -1949,9 +2352,16 @@ function getSubscriptionStatus(expiresAt) {
   return "active";
 }
 
-function formatSubscriptionDate(value) {
-  const date = new Date(value);
-  if (!value || Number.isNaN(date.getTime())) return "Sin fecha";
+function formatSqlDate(dateString) {
+  if (!dateString) return "Sin fecha";
+  const sqlDateMatch = String(dateString).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (sqlDateMatch) {
+    const [, year, month, day] = sqlDateMatch;
+    return `${day}/${month}/${year}`;
+  }
+
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "Sin fecha";
   return date.toLocaleDateString("es-MX", {
     day: "2-digit",
     month: "2-digit",
@@ -1961,6 +2371,16 @@ function formatSubscriptionDate(value) {
 
 function parseStoredDate(value) {
   if (!value) return null;
+
+  const sqlDateMatch = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (sqlDateMatch) {
+    const parsedSqlDate = new Date(
+      Number(sqlDateMatch[1]),
+      Number(sqlDateMatch[2]) - 1,
+      Number(sqlDateMatch[3])
+    );
+    return Number.isNaN(parsedSqlDate.getTime()) ? null : parsedSqlDate;
+  }
 
   const directDate = new Date(value);
   if (!Number.isNaN(directDate.getTime())) return directDate;
@@ -1988,7 +2408,7 @@ function ensureSubscriptionDates() {
   let changed = false;
 
   Object.entries(allUsers).forEach(([email, user]) => {
-    if (user.role === "admin" || (user.createdAt && user.expiresAt)) return;
+    if (user.role === "admin" || user.supabaseId || (user.createdAt && user.expiresAt)) return;
 
     const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${email}`)) || {};
     const startDate = parseStoredDate(user.createdAt) ||
@@ -2064,15 +2484,15 @@ function renderSubscriptions() {
         <select
           class="plan-type-select"
           data-plan-email="${escapeHTML(email)}"
-          data-previous-plan="${escapeHTML(user.planType || "")}"
+          data-previous-plan="${escapeHTML(user.planTypeCode || getSubscriptionPlanCode(user.planType))}"
           aria-label="Cambiar plan de ${escapeHTML(user.name || email)}"
         >
-          <option value="" ${user.planType ? "" : "selected"} disabled>Sin asignar</option>
-          ${allowedPlanTypes.map(plan => `<option value="${plan}" ${user.planType === plan ? "selected" : ""}>${plan}</option>`).join("")}
+          <option value="" ${(user.planTypeCode || getSubscriptionPlanCode(user.planType)) ? "" : "selected"} disabled>Sin asignar</option>
+          ${subscriptionPlanOptions.map(option => `<option value="${option.value}" ${(user.planTypeCode || getSubscriptionPlanCode(user.planType)) === option.value ? "selected" : ""}>${option.label}</option>`).join("")}
         </select>
       </td>
-      <td data-label="Fecha de inicio">${formatSubscriptionDate(user.createdAt)}</td>
-      <td data-label="Fecha de vencimiento">${formatSubscriptionDate(user.expiresAt)}</td>
+      <td data-label="Fecha de inicio">${formatSqlDate(user.createdAt)}</td>
+      <td data-label="Fecha de vencimiento">${formatSqlDate(user.expiresAt)}</td>
       <td data-label="Días restantes">${daysRemaining}</td>
       <td data-label="Estado"><span class="subscription-status ${status}">${labels[status]}</span></td>
       <td data-label="Acción">${status === "active" ? "—" : `<button class="btn renew-btn" type="button" data-renew-email="${escapeHTML(email)}">Renovar</button>`}</td>
@@ -2080,44 +2500,115 @@ function renderSubscriptions() {
   `).join("");
 }
 
-function updateUserPlanType(userEmail, newPlanType) {
+async function updateUserPlanType(userEmail, newPlanType) {
+  console.log("Usuario recibido:", userEmail);
   const user = getUsers()[userEmail];
-
   if (!user || user.role === "admin") {
     alert("No se encontró el usuario");
     return false;
   }
 
-  if (!allowedPlanTypes.includes(newPlanType)) {
+  const normalizedPlan = getSubscriptionPlanCode(newPlanType);
+  if (!normalizedPlan) {
     alert("Selecciona un tipo de plan válido");
     return false;
   }
 
-  const previousPlan = user.planType || "Sin asignar";
-  if (previousPlan === newPlanType) return true;
+  const previousPlan = user.planTypeCode || getSubscriptionPlanCode(user.planType);
+  console.log("Plan anterior:", previousPlan || "Sin asignar");
+  console.log("Plan nuevo:", normalizedPlan);
+  if (previousPlan === normalizedPlan) return true;
 
   const userName = user.name || userEmail;
-  const confirmed = confirm(`¿Confirmas cambiar el plan de ${userName} de ${previousPlan} a ${newPlanType}?`);
+  const confirmed = confirm(`¿Confirmas cambiar el plan de ${userName} de ${getSubscriptionPlanLabel(previousPlan)} a ${getSubscriptionPlanLabel(normalizedPlan)}?`);
   if (!confirmed) return false;
 
-  const customUsers = JSON.parse(localStorage.getItem("users")) || {};
-  customUsers[userEmail] = { ...user, planType: newPlanType };
-  localStorage.setItem("users", JSON.stringify(customUsers));
+  if (window.TrainerSupabase?.isConfigured()) {
+    if (!user.supabaseId) {
+      alert("No se encontró el UUID del usuario");
+      return false;
+    }
+    console.log("Subscription id:", user.subscriptionId || "Buscando suscripción activa más reciente");
+    const result = await window.TrainerSupabase.subscriptions.updatePlan(user.supabaseId, normalizedPlan);
+    console.log("Resultado del update:", result.data);
+    console.log("Error:", result.error);
+    if (result.error || !result.data?.id) {
+      alert(`No se pudo actualizar el tipo de plan: ${result.error?.message || "Supabase no devolvió la fila actualizada"}`);
+      return false;
+    }
 
+    const refreshed = await refreshSupabaseUsers();
+    if (refreshed.error) {
+      alert(`El plan se actualizó, pero no se pudo recargar la tabla: ${refreshed.error.message}`);
+      return false;
+    }
+    renderSubscriptions();
+    if (getSelectedUserEmail() === userEmail) renderSelectedUserProfile();
+    alert("Tipo de plan actualizado correctamente");
+    return true;
+  }
+
+  const customUsers = JSON.parse(localStorage.getItem("users")) || {};
+  customUsers[userEmail] = { ...user, planType: getSubscriptionPlanLabel(normalizedPlan) };
+  localStorage.setItem("users", JSON.stringify(customUsers));
   renderSubscriptions();
-  if ($("userSelect")?.value === userEmail) renderSelectedUserProfile();
+  if (getSelectedUserEmail() === userEmail) renderSelectedUserProfile();
   return true;
 }
 
-function renewSubscription(email) {
+async function renewSubscription(email) {
+  console.log("Renovar presionado");
+  console.log("Usuario recibido:", email);
   const user = getUsers()[email];
-  if (!user || user.role === "admin") return;
+  if (!user || user.role === "admin") {
+    console.error("Error de Supabase:", "Usuario no válido para renovación");
+    return;
+  }
+
+  console.log("Subscription encontrada:", {
+    subscriptionId: user.subscriptionId || null,
+    userId: user.supabaseId || null,
+    expirationDate: user.expiresAt || null
+  });
 
   const now = new Date();
-  const currentExpiration = new Date(user.expiresAt);
+  console.log("Fecha actual:", now.toISOString());
+  const currentExpiration = parseStoredDate(user.expiresAt) || new Date(NaN);
   const baseDate = !Number.isNaN(currentExpiration.getTime()) && currentExpiration > now
     ? currentExpiration : now;
   const renewedDate = addOneMonth(baseDate);
+  console.log("Nueva fecha calculada:", renewedDate.toISOString());
+
+  if (window.TrainerSupabase?.isConfigured()) {
+    if (!user.subscriptionId || !user.supabaseId) {
+      console.error("Error de Supabase:", "No se encontró la suscripción activa del usuario");
+      alert("No se encontró la suscripción activa del usuario");
+      return;
+    }
+
+    const updatePayload = {
+      subscriptionId: user.subscriptionId,
+      userId: user.supabaseId,
+      expirationDate: renewedDate.toISOString().slice(0, 10)
+    };
+    console.log("Update enviado:", updatePayload);
+    const result = await window.TrainerSupabase.subscriptions.renewSubscription(updatePayload);
+    console.log("Resultado del update:", result.data);
+    console.log("Error de Supabase:", result.error);
+    if (result.error) {
+      alert(`No se pudo renovar la suscripción: ${result.error.message}`);
+      return;
+    }
+
+    const refreshed = await refreshSupabaseUsers();
+    if (refreshed.error) {
+      console.error("Error de Supabase:", refreshed.error);
+      alert(`La suscripción se renovó, pero no se pudo actualizar la tabla: ${refreshed.error.message}`);
+      return;
+    }
+    renderSubscriptions();
+    return;
+  }
 
   const customUsers = JSON.parse(localStorage.getItem("users")) || {};
   customUsers[email] = { ...user, expiresAt: renewedDate.toISOString() };
@@ -2217,12 +2708,12 @@ if ($("subscriptionsList")) {
     if (button) renewSubscription(button.dataset.renewEmail);
   });
 
-  $("subscriptionsList").addEventListener("change", event => {
+  $("subscriptionsList").addEventListener("change", async event => {
     const planSelect = event.target.closest("[data-plan-email]");
     if (!planSelect) return;
 
     const previousPlan = planSelect.dataset.previousPlan || "";
-    const updated = updateUserPlanType(planSelect.dataset.planEmail, planSelect.value);
+    const updated = await updateUserPlanType(planSelect.dataset.planEmail, planSelect.value);
     if (!updated) planSelect.value = previousPlan;
   });
 }
@@ -2320,11 +2811,15 @@ if ($("btnGoProfile")) {
     });
   }
 
-  if ($("profilePhoto")) {
-    $("profilePhoto").addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (file) saveProfilePhoto(file);
+  const profilePhotoInput = $("profilePhoto");
+  if ($("btnChangeProfilePhoto") && profilePhotoInput) {
+    $("btnChangeProfilePhoto").addEventListener("click", () => {
+      profilePhotoInput.click();
     });
+  }
+
+  if (profilePhotoInput) {
+    profilePhotoInput.addEventListener("change", previewSelectedProfilePhoto);
   }
 
   if ($("btnToExercises")) {
