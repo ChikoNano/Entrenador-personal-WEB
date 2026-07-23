@@ -1004,6 +1004,147 @@ async function saveProfile() {
     return;
   }
 
+  if (window.TrainerSupabase?.isConfigured()) {
+    const client = window.TrainerSupabase.requireClient();
+    const { data: sessionData, error: sessionError } = await client.auth.getSession();
+    const session = sessionData?.session;
+    if (sessionError || !session?.user?.id) {
+      console.error("Error completo de sesión al guardar perfil:", sessionError);
+      alert("La sesión expiró. Inicia sesión nuevamente.");
+      return;
+    }
+
+    const userId = session.user.id;
+    console.log("UUID usado:", userId);
+
+    const nullableNumber = (value, integer = false) => {
+      const normalized = String(value ?? "").trim();
+      if (!normalized) return null;
+      const numericValue = Number(normalized);
+      if (!Number.isFinite(numericValue)) return Number.NaN;
+      return integer ? Math.trunc(numericValue) : numericValue;
+    };
+
+    const fullName = $("pName")?.value.trim() || "";
+    const ageValue = nullableNumber($("pAge")?.value, true);
+    const weightValue = nullableNumber($("pWeight")?.value);
+    const heightValue = nullableNumber($("pHeight")?.value);
+    const cooperValue = nullableNumber($("cooperDistance")?.value);
+    const vamValue = nullableNumber($("vamSpeed")?.value);
+    const goalValue =
+      currentSupabaseProfile?.goal ||
+      currentSupabaseProfile?.objetivo ||
+      "";
+
+    const numericValues = [ageValue, weightValue, heightValue, cooperValue, vamValue];
+    if (numericValues.some(value => Number.isNaN(value)) ||
+        [weightValue, heightValue, cooperValue, vamValue].some(value => value !== null && value < 0) ||
+        (ageValue !== null && ageValue < 0)) {
+      alert("Ingresa valores numéricos válidos y sin números negativos");
+      return;
+    }
+
+    let avatarPathValue =
+      currentSupabaseProfile?.avatar_path ||
+      currentSupabaseProfile?.avatar_url ||
+      "";
+    let uploadedAvatarPath = "";
+
+    if (pendingProfilePhotoFile) {
+      const extension =
+        pendingProfilePhotoFile.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") ||
+        "jpg";
+      const avatarPath = `${userId}/avatar-${Date.now()}.${extension}`;
+      const uploadResult = await client.storage
+        .from("avatars")
+        .upload(avatarPath, pendingProfilePhotoFile, {
+          upsert: false,
+          contentType: pendingProfilePhotoFile.type || "image/jpeg"
+        });
+
+      if (uploadResult.error || !uploadResult.data?.path) {
+        console.error("Error completo al subir avatar:", uploadResult.error);
+        alert(uploadResult.error?.message || "No se pudo guardar la foto de perfil.");
+        return;
+      }
+
+      uploadedAvatarPath = uploadResult.data.path;
+      avatarPathValue = uploadedAvatarPath;
+    }
+
+    const payload = {
+      full_name: fullName,
+      age: ageValue,
+      weight: weightValue,
+      height: heightValue,
+      goal: goalValue || null,
+      cooper_distance_km: cooperValue,
+      vam_kmh: vamValue,
+      avatar_path: avatarPathValue || null,
+      updated_at: new Date().toISOString()
+    };
+
+    console.log("Payload enviado:", {
+      full_name: fullName ? "[definido]" : "",
+      age: ageValue === null ? null : "[definido]",
+      weight: weightValue === null ? null : "[definido]",
+      height: heightValue === null ? null : "[definido]",
+      goal: goalValue ? "[definido]" : null,
+      cooper_distance_km: cooperValue === null ? null : "[definido]",
+      vam_kmh: vamValue === null ? null : "[definido]",
+      avatar_path: avatarPathValue ? "[definido]" : null,
+      updated_at: payload.updated_at
+    });
+    console.log("avatar_path final:", avatarPathValue || null);
+
+    const { data, error } = await client
+      .from("profiles")
+      .update(payload)
+      .eq("id", userId)
+      .select()
+      .single();
+
+    console.log("Data del update:", data);
+    console.error("Error completo del update:", error);
+
+    if (error || !data) {
+      if (uploadedAvatarPath) {
+        const cleanupResult = await client.storage.from("avatars").remove([uploadedAvatarPath]);
+        if (cleanupResult.error) {
+          console.error("No se pudo limpiar el avatar después del error:", cleanupResult.error);
+        }
+      }
+      alert(error?.message || "Supabase no devolvió el perfil actualizado.");
+      return;
+    }
+
+    currentSupabaseProfile = data;
+    currentSupabaseAvatarUrl = "";
+    if (data.avatar_path) {
+      if (/^(https?:|data:|blob:)/i.test(data.avatar_path)) {
+        currentSupabaseAvatarUrl = data.avatar_path;
+      } else {
+        const avatarResult = await window.TrainerSupabase.storage.getAvatarUrl(data.avatar_path);
+        if (avatarResult.error) {
+          console.error("No se pudo obtener la URL del avatar actualizado:", avatarResult.error);
+        } else {
+          currentSupabaseAvatarUrl = avatarResult.data?.signedUrl || "";
+        }
+      }
+    }
+
+    pendingProfilePhotoFile = null;
+    clearPendingProfilePhotoPreview();
+    window.pendingProfilePhotoFile = null;
+    window.pendingProfilePhotoPreview = "";
+    if ($("profilePhoto")) $("profilePhoto").value = "";
+    if ($("profileSaved")) $("profileSaved").classList.remove("hidden");
+    showProfilePhoto();
+    renderProfileCard();
+    alert("Perfil guardado correctamente");
+    return;
+  }
+
   const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${currentUser}`));
   const savedProfile = JSON.parse(localStorage.getItem(`profile_${currentUser}`)) || {};
   const user = getUsers()[currentUser] || {};
