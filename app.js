@@ -5,6 +5,7 @@ let pendingProfilePhotoPreviewUrl = "";
 let supabaseAuthStateSubscription = null;
 let supabaseSessionLoadPromise = null;
 let initializedSupabaseUserId = "";
+let currentSupabaseProfile = null;
 let activeExerciseFilter = "Todos";
 let selectedRoutineWeek = "Semana 1";
 let selectedRoutineDay = "Lunes";
@@ -1014,6 +1015,8 @@ async function saveProfile() {
 
     const userId = session.user.id;
     console.log("UUID usado:", userId);
+    console.log("Perfil actual antes de guardar:", currentSupabaseProfile);
+    const existingProfile = currentSupabaseProfile || {};
 
     const nullableNumber = (value, integer = false) => {
       const normalized = String(value ?? "").trim();
@@ -1030,8 +1033,8 @@ async function saveProfile() {
     const cooperValue = nullableNumber($("cooperDistance")?.value);
     const vamValue = nullableNumber($("vamSpeed")?.value);
     const goalValue =
-      currentSupabaseProfile?.goal ||
-      currentSupabaseProfile?.objetivo ||
+      existingProfile.goal ||
+      existingProfile.objetivo ||
       "";
 
     const numericValues = [ageValue, weightValue, heightValue, cooperValue, vamValue];
@@ -1043,8 +1046,8 @@ async function saveProfile() {
     }
 
     let avatarPathValue =
-      currentSupabaseProfile?.avatar_path ||
-      currentSupabaseProfile?.avatar_url ||
+      existingProfile.avatar_path ||
+      existingProfile.avatar_url ||
       "";
     let uploadedAvatarPath = "";
 
@@ -1232,6 +1235,7 @@ async function loadProfile(authenticatedUserId = "", shouldRender = true) {
       const supabaseProfile = profileResult.data;
       console.log("Profile encontrado:", supabaseProfile);
       if (!supabaseProfile) return;
+      currentSupabaseProfile = supabaseProfile;
 
       profile = {
         ...profile,
