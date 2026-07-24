@@ -6,6 +6,7 @@ let supabaseAuthStateSubscription = null;
 let supabaseSessionLoadPromise = null;
 let initializedSupabaseUserId = "";
 let currentSupabaseProfile = null;
+let passwordSetupMode = "invite";
 let activeExerciseFilter = "Todos";
 let selectedRoutineWeek = "Semana 1";
 let selectedRoutineDay = "Lunes";
@@ -15,6 +16,7 @@ const initialSupabaseAuthCallback = (() => {
   const type = query.get("type") || hash.get("type");
   const errorDescription = query.get("error_description") || hash.get("error_description");
   return {
+    type,
     active: ["invite", "recovery"].includes(type) || query.has("code") || hash.has("access_token") || Boolean(errorDescription),
     errorDescription
   };
@@ -51,6 +53,21 @@ function getUsers() {
   return { ...defaultUsers, ...savedUsers, ...supabaseUsersCache };
 }
 
+function getPanelUsers() {
+  return window.TrainerSupabase?.isConfigured()
+    ? supabaseUsersCache
+    : getUsers();
+}
+
+function formatAdministrativeUserLabel(email, user = {}, includeEmail = false) {
+  const numberPrefix = user.userNumber !== null && user.userNumber !== undefined
+    ? `#${user.userNumber} - `
+    : "";
+  const name = String(user.name || "").trim() || "Sin nombre";
+  const normalizedEmail = String(email || "").trim();
+  return `${numberPrefix}${name}${includeEmail && normalizedEmail ? ` - ${normalizedEmail}` : ""}`;
+}
+
 function getSelectedUserEmail() {
   const select = $("userSelect");
   if (!select?.value) return "";
@@ -81,6 +98,7 @@ async function refreshSupabaseUsers() {
       role: profile.role,
       name: profile.full_name || profile.email,
       supabaseId: profile.id,
+      userNumber: profile.user_number ?? null,
       subscriptionId: subscription?.id || null,
       planType: window.TrainerSupabase.subscriptions.getPlanLabel(subscription?.plan_type),
       planTypeCode: getSubscriptionPlanCode(subscription?.plan_type),
@@ -348,9 +366,54 @@ function showPasswordSetupMessage(message, type = "error") {
   if (type === "success") element.classList.add("success");
 }
 
+function configurePasswordSetupView(mode = "invite") {
+  passwordSetupMode = mode === "recovery" ? "recovery" : "invite";
+  if ($("passwordSetupTitle")) {
+    $("passwordSetupTitle").textContent =
+      passwordSetupMode === "recovery" ? "Restablece tu contraseña" : "Crea tu contraseña";
+  }
+  const copy = document.querySelector(".password-setup-copy");
+  if (copy) {
+    copy.textContent = passwordSetupMode === "recovery"
+      ? "Define una nueva contraseña segura para volver a iniciar sesión."
+      : "Define una contraseña segura para continuar a tu evaluación.";
+  }
+  if ($("btnCreatePassword")) {
+    $("btnCreatePassword").textContent =
+      passwordSetupMode === "recovery" ? "Guardar nueva contraseña" : "Crear contraseña";
+  }
+}
+
+async function requestPasswordRecovery() {
+  const initialEmail = $("emailInput")?.value.trim() || "";
+  const requestedEmail = window.prompt("Ingresa tu correo electrónico:", initialEmail);
+  if (requestedEmail === null) return;
+
+  const email = requestedEmail.trim().toLowerCase();
+  const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (!validEmail) {
+    alert("Ingresa un correo electrónico válido.");
+    return;
+  }
+  if (!window.TrainerSupabase?.isConfigured()) {
+    alert("No se pudo iniciar la recuperación. Inténtalo más tarde.");
+    return;
+  }
+
+  const result = await window.TrainerSupabase.auth.resetPassword(
+    email,
+    "https://chikonano.github.io/Entrenador-personal-WEB/"
+  );
+  if (result.error) {
+    console.error("No se pudo solicitar la recuperación de contraseña.");
+  }
+  alert("Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.");
+}
+
 async function initializePasswordSetupFlow() {
   if (!initialSupabaseAuthCallback.active) return false;
 
+  configurePasswordSetupView(initialSupabaseAuthCallback.type === "recovery" ? "recovery" : passwordSetupMode);
   goToPage("passwordSetupPage");
   const button = $("btnCreatePassword");
   if (button) button.disabled = true;
@@ -360,13 +423,13 @@ async function initializePasswordSetupFlow() {
     return true;
   }
   if (initialSupabaseAuthCallback.errorDescription) {
-    showPasswordSetupMessage(`El enlace es inválido o expiró: ${initialSupabaseAuthCallback.errorDescription}`);
+    showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
     return true;
   }
 
   const { data, error } = await window.TrainerSupabase.getClient().auth.getSession();
   if (error || !data?.session) {
-    showPasswordSetupMessage("El enlace de invitación es inválido o expiró. Solicita uno nuevo a tu entrenador.");
+    showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
     return true;
   }
 
@@ -396,24 +459,38 @@ async function createInvitedUserPassword() {
   }
 
   button.disabled = true;
-  button.textContent = "Creando contraseña...";
+  button.textContent = passwordSetupMode === "recovery"
+    ? "Guardando nueva contraseña..."
+    : "Creando contraseña...";
   try {
     const client = window.TrainerSupabase.getClient();
     const { data: sessionData, error: sessionError } = await client.auth.getSession();
     if (sessionError || !sessionData?.session) {
-      showPasswordSetupMessage("La invitación expiró. Solicita un nuevo enlace a tu entrenador.");
+      showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
       return;
     }
 
     const { data, error } = await client.auth.updateUser({ password });
     if (error || !data?.user) {
-      showPasswordSetupMessage(error?.message || "No se pudo crear la contraseña. Solicita un nuevo enlace.");
+      showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
       return;
     }
 
     passwordInput.value = "";
     confirmationInput.value = "";
-    window.history.replaceState({}, document.title, window.location.pathname);
+    window.history.replaceState({}, document.title, `${window.location.origin}${window.location.pathname}`);
+
+    if (passwordSetupMode === "recovery") {
+      showPasswordSetupMessage("Contraseña actualizada correctamente", "success");
+      alert("Contraseña actualizada correctamente");
+      await client.auth.signOut();
+      localStorage.removeItem("currentUser");
+      localStorage.removeItem("currentRole");
+      initializedSupabaseUserId = "";
+      goToPage("loginPage");
+      return;
+    }
+
     showPasswordSetupMessage("Contraseña creada correctamente. Preparando tu cuenta...", "success");
 
     const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
@@ -437,10 +514,12 @@ async function createInvitedUserPassword() {
       renderDashboard();
     }
   } catch {
-    showPasswordSetupMessage("No se pudo crear la contraseña. Revisa tu conexión o solicita un nuevo enlace.");
+    showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
   } finally {
     button.disabled = false;
-    button.textContent = "Crear contraseña";
+    button.textContent = passwordSetupMode === "recovery"
+      ? "Guardar nueva contraseña"
+      : "Crear contraseña";
   }
 }
 
@@ -890,6 +969,13 @@ function ensureSupabaseAuthStateListener() {
   if (supabaseAuthStateSubscription || !window.TrainerSupabase?.isConfigured()) return;
 
   const authListener = window.TrainerSupabase.auth.onAuthStateChange((event, session) => {
+    if (event === "PASSWORD_RECOVERY") {
+      configurePasswordSetupView("recovery");
+      goToPage("passwordSetupPage");
+      if ($("btnCreatePassword")) $("btnCreatePassword").disabled = false;
+      $("newAccountPassword")?.focus();
+      return;
+    }
     if (!["INITIAL_SESSION", "SIGNED_IN"].includes(event) || !session?.user?.id) return;
     window.setTimeout(() => {
       loadRestoredSupabaseSession(session).catch(error => {
@@ -1239,6 +1325,7 @@ async function loadProfile(authenticatedUserId = "", shouldRender = true) {
 
       profile = {
         ...profile,
+        user_number: supabaseProfile.user_number ?? null,
         name: supabaseProfile.full_name || "",
         age: supabaseProfile.age ?? "",
         weight: supabaseProfile.weight ?? "",
@@ -1294,6 +1381,10 @@ function renderProfileCard() {
   const profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`));
   const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${currentUser}`));
   const photo = pendingProfilePhotoPreviewUrl || localStorage.getItem(`profilePhoto_${currentUser}`);
+  const userNumber =
+    currentSupabaseProfile?.user_number ??
+    profile?.user_number ??
+    null;
 
   container.innerHTML = `
     <div class="profile-card-inner">
@@ -1303,7 +1394,11 @@ function renderProfileCard() {
           : `<div class="profile-placeholder">👤</div>`
       }
 
-      <h2>${profile?.name || "Tu nombre"}</h2>
+      <h2 class="${userNumber !== null ? "profile-name-with-number" : ""}">${profile?.name || "Tu nombre"}</h2>
+      ${userNumber !== null
+        ? `<span class="profile-user-number">#${escapeHTML(userNumber)}</span>`
+        : ""
+      }
 
       <p class="profile-objective">
         ${profile?.goal || questionnaire?.goal || questionnaire?.objetivo || "Objetivo pendiente"}
@@ -1856,29 +1951,47 @@ function fileToBase64(file) {
 }
 /* ASIGNACIONES */
 
-function renderUserSelect() {
+function renderUserSelect(refreshRemoteRelatedViews = true) {
   const select = $("userSelect");
   if (!select) return;
 
-  const users = getUsers();
   const supabaseMode = window.TrainerSupabase?.isConfigured();
+  const users = getPanelUsers();
+  const normalizedQuery = String($("userSearch")?.value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^#/, "");
+  console.log("Texto buscado:", normalizedQuery);
   const userEmails = Object.keys(users).filter(email =>
-    users[email].role === "user" && (!supabaseMode || users[email].supabaseId)
+    users[email].role === "user" &&
+    (!supabaseMode || users[email].supabaseId) &&
+    (!normalizedQuery || [
+      email,
+      users[email].name,
+      users[email].userNumber
+    ].some(value => String(value ?? "").toLowerCase().includes(normalizedQuery)))
   );
+  console.log("Usuarios encontrados:", userEmails.length);
 
   if (userEmails.length === 0) {
-    select.innerHTML = `<option value="">No hay usuarios</option>`;
+    select.innerHTML = `<option value="">No se encontraron usuarios</option>`;
+    if (refreshRemoteRelatedViews) renderSelectedUserAssignments();
+    if ($("selectedUserProfile")) {
+      $("selectedUserProfile").innerHTML = "<p>No se encontraron usuarios</p>";
+    }
+    updateSelectedUserLabel();
     return;
   }
 
   select.innerHTML = userEmails.map(email => `
     <option value="${supabaseMode ? users[email].supabaseId : email}" data-email="${escapeHTML(email)}">
-      ${users[email].name} - ${email}
+      ${escapeHTML(formatAdministrativeUserLabel(email, users[email], true))}
     </option>
   `).join("");
 
-  renderSelectedUserAssignments();
+  if (refreshRemoteRelatedViews) renderSelectedUserAssignments();
   renderSelectedUserProfile();
+  updateSelectedUserLabel();
 }
 
 async function assignExerciseToUser() {
@@ -2123,13 +2236,18 @@ function renderSelectedUserProfile() {
   const profile = JSON.parse(localStorage.getItem(`profile_${userEmail}`));
   const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${userEmail}`));
   const profilePhoto = localStorage.getItem(`profilePhoto_${userEmail}`);
-  const selectedUser = getUsers()[userEmail] || {};
+  const selectedUser = getPanelUsers()[userEmail] || {};
   const assessmentValue = (property, fallback = "No contestado") =>
     profile?.[property] || questionnaire?.[property] || fallback;
   const hasInjury = profile?.hasInjury ?? questionnaire?.hasInjury;
   const injuryLabel = hasInjury === true ? "Sí" : hasInjury === false ? "No" : "No contestado";
   const personalDetails = [
-    { icon: "👤", label: "Nombre", value: profile?.name || selectedUser.name || "No cargado" },
+    {
+      icon: "👤",
+      label: "Nombre",
+      value: profile?.name || selectedUser.name || "No cargado",
+      userNumber: selectedUser.userNumber ?? null
+    },
     { icon: "✉️", label: "Correo electrónico", value: userEmail },
     { icon: "◇", label: "Tipo de plan", value: selectedUser.planType || "Sin asignar" },
     { icon: "🎂", label: "Edad", value: profile?.age || "No cargada" },
@@ -2170,6 +2288,10 @@ function renderSelectedUserProfile() {
               <div>
                 <span class="admin-detail-label">${detail.label}</span>
                 <strong class="admin-detail-value">${escapeHTML(String(detail.value))}</strong>
+                ${detail.userNumber !== null && detail.userNumber !== undefined
+                  ? `<span class="profile-user-number admin-profile-user-number">#${escapeHTML(detail.userNumber)}</span>`
+                  : ""
+                }
               </div>
             </div>
           `).join("")}
@@ -2527,9 +2649,11 @@ async function renderUserExercises() {
 
 function updateSelectedUserLabel() {
   const userEmail = getSelectedUserEmail();
+  const selectedUser = getPanelUsers()[userEmail] || {};
 
   if ($("routineSelectedUserLabel")) {
-    $("routineSelectedUserLabel").textContent = userEmail || "Ninguno";
+    $("routineSelectedUserLabel").textContent =
+      userEmail ? formatAdministrativeUserLabel(userEmail, selectedUser) : "Ninguno";
   }
 }
 
@@ -2738,8 +2862,16 @@ function renderSubscriptions() {
   ensureSubscriptionDates();
 
   const filter = $("subscriptionFilter")?.value || "all";
-  const users = Object.entries(getUsers())
+  const searchTerm = String($("userSearch")?.value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^#/, "");
+  const users = Object.entries(getPanelUsers())
     .filter(([, user]) => user.role !== "admin")
+    .filter(([email, user]) =>
+      !searchTerm || [user.userNumber, user.name, email]
+        .some(value => String(value ?? "").toLowerCase().includes(searchTerm))
+    )
     .map(([email, user]) => ({
       email,
       user,
@@ -2771,7 +2903,9 @@ function renderSubscriptions() {
   const labels = { active: "Activo", warning: "Por vencer", expired: "Vencido" };
   list.innerHTML = visibleUsers.map(({ email, user, daysRemaining, status }) => `
     <tr>
-      <td data-label="Usuario">${escapeHTML(user.name || "Sin nombre")}</td>
+      <td data-label="Usuario">
+        <strong>${escapeHTML(formatAdministrativeUserLabel(email, user))}</strong>
+      </td>
       <td data-label="Correo">${escapeHTML(email)}</td>
       <td class="subscription-plan" data-label="Tipo de plan">
         <select
@@ -2967,6 +3101,7 @@ function selectRoutineDay(day) {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+ if (window.TrainerSupabase?.isConfigured()) ensureSupabaseAuthStateListener();
  const passwordSetupFlowActive = await initializePasswordSetupFlow();
  document.body.classList.remove("auth-routing");
 
@@ -3051,6 +3186,10 @@ if ($("btnGoProfile")) {
 
   if ($("btnLogin")) {
     $("btnLogin").addEventListener("click", login);
+  }
+
+  if ($("btnForgotPassword")) {
+    $("btnForgotPassword").addEventListener("click", requestPasswordRecovery);
   }
 
   if ($("btnCreatePassword")) {
@@ -3168,6 +3307,12 @@ if ($("btnGoProfile")) {
     $("userSelect").addEventListener("change", () => {
       renderSelectedUserAssignments();
       renderSelectedUserProfile();
+    });
+  }
+
+  if ($("userSearch")) {
+    $("userSearch").addEventListener("input", () => {
+      renderUserSelect(false);
     });
   }
 

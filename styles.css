@@ -433,6 +433,32 @@ summary:focus-visible {
   margin-top: .35rem;
 }
 
+.forgot-password-link {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  margin-top: .55rem;
+  padding: .55rem;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft) !important;
+  box-shadow: none;
+  text-decoration: underline;
+  text-underline-offset: .2em;
+}
+
+.forgot-password-link:hover {
+  background: transparent;
+  color: var(--accent-strong) !important;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+.forgot-password-link::after {
+  display: none;
+}
+
 .password-setup-page {
   width: min(calc(100% - 2rem), 460px);
   padding: clamp(1.6rem, 5vw, 3rem);
@@ -1275,6 +1301,24 @@ body.dark-mode .admin-assessment-item {
 .profile-objective {
   color: var(--accent-strong);
   font-weight: 850;
+}
+
+.profile-name-with-number {
+  margin-bottom: 0;
+}
+
+.profile-user-number {
+  display: block;
+  margin: 4px 0 6px;
+  color: #9ca3af;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.admin-profile-user-number {
+  text-align: inherit;
 }
 
 .profile-stats {

@@ -29,6 +29,9 @@
     <input type="email" id="emailInput" placeholder="Correo electrónico">
     <input type="password" id="passwordInput" placeholder="Contraseña">
     <button class="btn" id="btnLogin">Iniciar sesión</button>
+    <button type="button" id="btnForgotPassword" class="forgot-password-link">
+      ¿Olvidaste tu contraseña?
+    </button>
 
     <hr style="margin:14px 0; opacity:.2">
 
@@ -468,6 +471,11 @@
     <hr style="margin:14px 0; opacity:.2">
 
     <h3>Seleccionar usuario</h3>
+
+    <input type="search"
+           id="userSearch"
+           placeholder="Buscar por número, nombre o correo"
+           autocomplete="off">
 
     <div style="display:flex; gap:10px; align-items:center;">
       <select id="userSelect"></select>
