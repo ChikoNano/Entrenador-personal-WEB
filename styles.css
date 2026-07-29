@@ -670,7 +670,6 @@ summary:focus-visible {
 .progress-card,
 .profile-card-inner,
 .profile-edit-box,
-.category-block,
 details,
 .therapy-card,
 .dashboard-card,
@@ -930,7 +929,6 @@ details,
 .progress-card,
 .profile-card-inner,
 .profile-edit-box,
-.category-block,
 details,
 .therapy-card {
   margin: 1rem 0;
@@ -1031,6 +1029,139 @@ details[open] summary::after {
 
 .media-card small {
   color: var(--text-soft);
+}
+
+.exercise-library-panel {
+  width: 100%;
+  margin-top: 1rem;
+  padding: clamp(1rem, 2.5vw, 1.5rem);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.exercise-library-panel h3 {
+  margin: 0 0 1rem;
+}
+
+.exercise-library-controls,
+.exercise-library-results {
+  width: 100%;
+  min-width: 0;
+}
+
+#exerciseLibrarySearch {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.exercise-library-category-filter {
+  display: block;
+  width: 100%;
+  max-width: none;
+  min-height: 48px;
+  margin-top: .85rem;
+  border-radius: 15px;
+}
+
+body.dark-mode .exercise-library-category-filter {
+  background-color: #111827;
+  color: #f3f4f6;
+  border-color: #6b7280;
+}
+
+.exercise-library-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  margin-top: .75rem;
+  color: var(--text-soft);
+  font-size: .88rem;
+}
+
+.exercise-library-toolbar .btn-edit {
+  flex: 0 0 auto;
+}
+
+.exercise-library-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.exercise-library-card {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.exercise-library-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+.exercise-library-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  margin-top: .45rem;
+  color: var(--text-soft);
+  font-size: .8rem;
+}
+
+.exercise-library-meta span {
+  padding: .3rem .55rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+
+.exercise-library-media {
+  width: 100%;
+  margin: 1rem 0;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+}
+
+.exercise-library-media img,
+.exercise-library-media video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 0;
+  object-fit: contain;
+}
+
+.exercise-library-empty,
+.exercise-library-media-fallback {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0;
+  padding: 1rem;
+  border-radius: var(--radius-md);
+  color: var(--text-soft);
+  text-align: center;
+  background: var(--surface-solid);
+}
+
+@media (max-width: 600px) {
+  .exercise-library-panel {
+    padding: 1rem;
+  }
+
+  .exercise-library-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .exercise-library-toolbar .btn-edit {
+    width: 100%;
+  }
 }
 
 .profile-photo {
@@ -1361,6 +1492,47 @@ body.dark-mode .admin-assessment-item {
   border-radius: 50%;
   background: var(--accent-soft);
   font-size: 2.5rem;
+}
+
+.suggestion-card {
+  width: 100%;
+  max-width: 100%;
+  margin: 1rem 0;
+  padding: clamp(1rem, 3vw, 1.4rem);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-solid);
+  box-shadow: var(--shadow-sm);
+}
+
+.suggestion-card h2 {
+  display: flex;
+  gap: .55rem;
+  align-items: center;
+  margin: 0 0 .65rem;
+  color: var(--text);
+  font-size: clamp(1.08rem, 3vw, 1.3rem);
+}
+
+.suggestion-card p {
+  margin: 0 0 1rem;
+  color: var(--text-soft);
+  line-height: 1.55;
+}
+
+.suggestion-card .suggestion-whatsapp-btn {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 .75rem;
+}
+
+.suggestion-card small {
+  display: block;
+  color: #9ca3af;
+  font-size: .78rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .aerobic-fields-heading {

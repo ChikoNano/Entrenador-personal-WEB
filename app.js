@@ -7,9 +7,10 @@ let supabaseSessionLoadPromise = null;
 let initializedSupabaseUserId = "";
 let currentSupabaseProfile = null;
 let passwordSetupMode = "invite";
-let activeExerciseFilter = "Todos";
+let activeExerciseFilter = null;
 let selectedRoutineWeek = "Semana 1";
 let selectedRoutineDay = "Lunes";
+const TRAINER_WHATSAPP_NUMBER = "REEMPLAZAR_NUMERO_WHATSAPP";
 const initialSupabaseAuthCallback = (() => {
   const query = new URLSearchParams(window.location.search);
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -21,6 +22,11 @@ const initialSupabaseAuthCallback = (() => {
     errorDescription
   };
 })();
+const TEMPORARY_AUTH_FLOW_KEY = "traineros_temporary_auth_flow";
+let authCallbackFlowActive =
+  initialSupabaseAuthCallback.active ||
+  localStorage.getItem(TEMPORARY_AUTH_FLOW_KEY) === "true";
+let isCompletingPasswordSetup = false;
 
 
 const defaultUsers = {
@@ -51,6 +57,28 @@ function $(id) {
 function getUsers() {
   const savedUsers = JSON.parse(localStorage.getItem("users")) || {};
   return { ...defaultUsers, ...savedUsers, ...supabaseUsersCache };
+}
+
+function sendProfileSuggestionByWhatsApp() {
+  if (!/^\d{8,15}$/.test(TRAINER_WHATSAPP_NUMBER)) {
+    alert("El número de WhatsApp del entrenador aún no está configurado.");
+    return;
+  }
+
+  const fullName = String(currentSupabaseProfile?.full_name || "").trim() || "Usuario";
+  const userNumber = currentSupabaseProfile?.user_number;
+  const userNumberText =
+    userNumber !== null && userNumber !== undefined && String(userNumber).trim()
+      ? `, usuario #${userNumber}`
+      : "";
+  const message = `Hola, soy ${fullName}${userNumberText}.\n\nQuiero enviar la siguiente sugerencia sobre la plataforma:\n`;
+  const encodedMessage = encodeURIComponent(message);
+  const isMobileDevice = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const url = isMobileDevice
+    ? `https://wa.me/${TRAINER_WHATSAPP_NUMBER}?text=${encodedMessage}`
+    : `https://web.whatsapp.com/send?phone=${TRAINER_WHATSAPP_NUMBER}&text=${encodedMessage}`;
+
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function getPanelUsers() {
@@ -154,7 +182,6 @@ function isUserExpired(user) {
 async function createUser() {
   const name = $("newUserName")?.value.trim();
   const email = $("newUserEmail")?.value.trim();
-  const password = $("newUserPassword")?.value.trim();
   const planType = $("newUserPlanType")?.value;
 
   const supabaseMode = window.TrainerSupabase?.isConfigured();
@@ -185,8 +212,6 @@ async function createUser() {
 
     const startDate = new Date().toISOString().slice(0, 10);
     const expirationDate = addDaysToDate(33).slice(0, 10);
-    // La contraseña visible pertenece al modo local heredado. En Supabase se ignora:
-    // el cliente define su propia contraseña desde el correo de invitación.
     const invitation = await window.TrainerSupabase.auth.inviteUser({
       email: email.toLowerCase(),
       fullName: name,
@@ -219,7 +244,6 @@ async function createUser() {
 
     $("newUserName").value = "";
     $("newUserEmail").value = "";
-    $("newUserPassword").value = "";
     $("newUserPlanType").value = "";
 
     const usersResult = await refreshSupabaseUsers();
@@ -236,8 +260,8 @@ async function createUser() {
     return;
   }
 
-  if (!name || !email || !password) {
-    alert("Completa todos los campos");
+  if (!name || !email) {
+    alert("Completa nombre y correo");
     return;
   }
 
@@ -256,7 +280,6 @@ async function createUser() {
   const customUsers = JSON.parse(localStorage.getItem("users")) || {};
 
   customUsers[email] = {
-  password,
   role: "user",
   name,
   planType,
@@ -268,7 +291,6 @@ async function createUser() {
 
   $("newUserName").value = "";
   $("newUserEmail").value = "";
-  $("newUserPassword").value = "";
   $("newUserPlanType").value = "";
 
   renderAdminData();
@@ -376,7 +398,7 @@ function configurePasswordSetupView(mode = "invite") {
   if (copy) {
     copy.textContent = passwordSetupMode === "recovery"
       ? "Define una nueva contraseña segura para volver a iniciar sesión."
-      : "Define una contraseña segura para continuar a tu evaluación.";
+      : "Define una contraseña segura. Después iniciarás sesión manualmente.";
   }
   if ($("btnCreatePassword")) {
     $("btnCreatePassword").textContent =
@@ -413,6 +435,8 @@ async function requestPasswordRecovery() {
 async function initializePasswordSetupFlow() {
   if (!initialSupabaseAuthCallback.active) return false;
 
+  authCallbackFlowActive = true;
+  localStorage.setItem(TEMPORARY_AUTH_FLOW_KEY, "true");
   configurePasswordSetupView(initialSupabaseAuthCallback.type === "recovery" ? "recovery" : passwordSetupMode);
   goToPage("passwordSetupPage");
   const button = $("btnCreatePassword");
@@ -436,6 +460,33 @@ async function initializePasswordSetupFlow() {
   if (button) button.disabled = false;
   $("newAccountPassword")?.focus();
   return true;
+}
+
+function clearTemporarySupabaseAuthState() {
+  localStorage.removeItem("currentUser");
+  localStorage.removeItem("currentRole");
+  localStorage.removeItem(TEMPORARY_AUTH_FLOW_KEY);
+  initializedSupabaseUserId = "";
+  currentSupabaseProfile = null;
+
+  [localStorage, sessionStorage].forEach(storage => {
+    const keysToRemove = [];
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key && (/^sb-.+-auth-token$/i.test(key) || /supabase.*(?:auth|pkce)/i.test(key))) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => storage.removeItem(key));
+  });
+}
+
+function clearSupabaseAuthCallbackUrl() {
+  window.history.replaceState(
+    {},
+    document.title,
+    `${window.location.origin}${window.location.pathname}`
+  );
 }
 
 async function createInvitedUserPassword() {
@@ -462,6 +513,7 @@ async function createInvitedUserPassword() {
   button.textContent = passwordSetupMode === "recovery"
     ? "Guardando nueva contraseña..."
     : "Creando contraseña...";
+  isCompletingPasswordSetup = true;
   try {
     const client = window.TrainerSupabase.getClient();
     const { data: sessionData, error: sessionError } = await client.auth.getSession();
@@ -478,44 +530,28 @@ async function createInvitedUserPassword() {
 
     passwordInput.value = "";
     confirmationInput.value = "";
-    window.history.replaceState({}, document.title, `${window.location.origin}${window.location.pathname}`);
+    const successMessage = passwordSetupMode === "recovery"
+      ? "Contraseña actualizada correctamente"
+      : "Contraseña creada correctamente";
+    showPasswordSetupMessage(successMessage, "success");
 
-    if (passwordSetupMode === "recovery") {
-      showPasswordSetupMessage("Contraseña actualizada correctamente", "success");
-      alert("Contraseña actualizada correctamente");
-      await client.auth.signOut();
-      localStorage.removeItem("currentUser");
-      localStorage.removeItem("currentRole");
-      initializedSupabaseUserId = "";
-      goToPage("loginPage");
-      return;
+    const { error: signOutError } = await client.auth.signOut();
+    if (signOutError) {
+      console.error("No se pudo cerrar la sesión temporal:", signOutError);
     }
 
-    showPasswordSetupMessage("Contraseña creada correctamente. Preparando tu cuenta...", "success");
-
-    const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
-    if (profileResult.error || !profileResult.data?.active) {
-      showPasswordSetupMessage(profileResult.error?.message || "La contraseña fue creada, pero el perfil todavía no está disponible.");
-      return;
-    }
-    const profile = profileResult.data;
-    const email = profile.email || data.user.email;
-    localStorage.setItem("currentUser", email);
-    localStorage.setItem("currentRole", profile.role);
-    await startSession(email, {
-      name: profile.full_name || email,
-      role: profile.role,
-      supabaseId: profile.id
-    });
-
-    const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${email}`));
-    if (questionnaire?.completed) {
-      goToPage("dashboardPage");
-      renderDashboard();
-    }
+    clearTemporarySupabaseAuthState();
+    clearSupabaseAuthCallbackUrl();
+    authCallbackFlowActive = false;
+    alert(`${successMessage}. Inicia sesión con tu nueva contraseña.`);
+    goToPage("loginPage");
+    if ($("emailInput")) $("emailInput").value = data.user.email || "";
+    $("passwordInput")?.focus();
+    return;
   } catch {
     showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
   } finally {
+    isCompletingPasswordSetup = false;
     button.disabled = false;
     button.textContent = passwordSetupMode === "recovery"
       ? "Guardar nueva contraseña"
@@ -970,12 +1006,26 @@ function ensureSupabaseAuthStateListener() {
 
   const authListener = window.TrainerSupabase.auth.onAuthStateChange((event, session) => {
     if (event === "PASSWORD_RECOVERY") {
+      authCallbackFlowActive = true;
+      localStorage.setItem(TEMPORARY_AUTH_FLOW_KEY, "true");
       configurePasswordSetupView("recovery");
       goToPage("passwordSetupPage");
       if ($("btnCreatePassword")) $("btnCreatePassword").disabled = false;
       $("newAccountPassword")?.focus();
       return;
     }
+
+    if (
+      authCallbackFlowActive ||
+      isCompletingPasswordSetup ||
+      event === "USER_UPDATED"
+    ) {
+      if (authCallbackFlowActive && session?.user?.id) {
+        goToPage("passwordSetupPage");
+      }
+      return;
+    }
+
     if (!["INITIAL_SESSION", "SIGNED_IN"].includes(event) || !session?.user?.id) return;
     window.setTimeout(() => {
       loadRestoredSupabaseSession(session).catch(error => {
@@ -988,6 +1038,22 @@ function ensureSupabaseAuthStateListener() {
 
 async function restoreSession() {
   if (window.TrainerSupabase?.isConfigured()) {
+    if (authCallbackFlowActive || isCompletingPasswordSetup) {
+      if (initialSupabaseAuthCallback.active || isCompletingPasswordSetup) {
+        goToPage("passwordSetupPage");
+        return;
+      }
+
+      const result = await window.TrainerSupabase.auth.signOut();
+      if (result.error) {
+        console.error("No se pudo cerrar una sesión temporal pendiente:", result.error);
+      }
+      clearTemporarySupabaseAuthState();
+      authCallbackFlowActive = false;
+      goToPage("loginPage");
+      return;
+    }
+
     console.log("Inicio restauración");
     ensureSupabaseAuthStateListener();
 
@@ -1667,10 +1733,9 @@ function saveUserAssignments(assignments) {
   localStorage.setItem("userAssignments", JSON.stringify(assignments));
 }
 
-async function addExerciseToLibrary() {
+async function addExerciseToLibraryLegacy() {
   const category = $("exerciseCategory")?.value;
   const title = $("exerciseTitle")?.value.trim();
-  const file = $("exerciseImageFile")?.files[0];
   const imageUrl = $("exerciseImageUrl")?.value.trim();
   const videoUrl = $("exerciseVideoUrl")?.value.trim();
 
@@ -1679,7 +1744,7 @@ async function addExerciseToLibrary() {
     return;
   }
 
-  if (!file && !videoUrl) {
+  if (!imageUrl && !videoUrl) {
     alert("Agrega una imagen o pega la URL del video");
     return;
   }
@@ -1690,17 +1755,12 @@ async function addExerciseToLibrary() {
     let type = "image";
     let url = "";
 
-        if (videoUrl) {
+    if (videoUrl) {
       type = "video";
       url = videoUrl;
-    }
-    else if (imageUrl) {
+    } else if (imageUrl) {
       type = "image";
       url = imageUrl;
-    }
-    else if (file) {
-      type = "image";
-      url = await compressImage(file);
     }
 
     library.push({
@@ -1715,7 +1775,7 @@ async function addExerciseToLibrary() {
 
     $("exerciseCategory").value = "";
     $("exerciseTitle").value = "";
-    $("exerciseImageFile").value = "";
+    $("exerciseImageUrl").value = "";
     $("exerciseVideoUrl").value = "";
 
     renderAdminData();
@@ -1727,68 +1787,216 @@ async function addExerciseToLibrary() {
   }
 }
 
+async function addExerciseToLibrary() {
+  console.log("Crear ejercicio presionado");
+
+  const muscleGroup = $("exerciseCategory")?.value;
+  const title = $("exerciseTitle")?.value.trim();
+  const imageUrl = $("exerciseImageUrl")?.value.trim();
+  const videoUrl = $("exerciseVideoUrl")?.value.trim();
+  const mediaType = videoUrl ? "video" : "image";
+  const mediaUrl = videoUrl || imageUrl;
+  const payload = {
+    category: muscleGroup,
+    muscle_group: muscleGroup,
+    title,
+    media_type: mediaType,
+    media_url: mediaUrl,
+    active: true
+  };
+
+  console.log("Grupo muscular:", muscleGroup);
+  console.log("Título:", title);
+  console.log("Tipo de medio:", mediaType);
+  console.log("URL:", mediaUrl);
+  console.log("Payload ejercicio:", payload);
+
+  if (!muscleGroup || !title) {
+    alert("Completa categoría y nombre del ejercicio");
+    return;
+  }
+
+  if (!mediaUrl) {
+    alert("Agrega una imagen o pega la URL del video");
+    return;
+  }
+
+  if (!["video", "image"].includes(mediaType)) {
+    alert("Tipo de medio inválido");
+    return;
+  }
+
+  try {
+    if (window.TrainerSupabase?.isConfigured()) {
+      const supabase = window.TrainerSupabase.getClient();
+      const { data, error } = await supabase
+        .from("exercises")
+        .insert(payload)
+        .select()
+        .single();
+
+      console.log("Respuesta insert ejercicio:", data);
+      console.error("Error insert ejercicio:", error);
+
+      if (error) {
+        throw new Error(error.message || "No se pudo crear el ejercicio");
+      }
+
+      if (!data?.id) {
+        throw new Error("Supabase no devolvió un ejercicio válido");
+      }
+
+      exerciseLibraryInitialization = null;
+      await initializeExerciseLibrary();
+      clearNewExerciseForm();
+      renderAdminData();
+      alert("Ejercicio agregado a la biblioteca");
+      return;
+    }
+
+    const library = getExerciseLibrary();
+    library.push({
+      id: Date.now(),
+      category: muscleGroup,
+      title,
+      type: mediaType,
+      url: mediaUrl
+    });
+    saveExerciseLibrary(library);
+    clearNewExerciseForm();
+    renderAdminData();
+    alert("Ejercicio agregado a la biblioteca");
+  } catch (error) {
+    console.error("No se pudo crear el ejercicio:", error);
+    alert(`No se pudo crear el ejercicio: ${error.message || "Error desconocido"}`);
+  }
+}
+
+function clearNewExerciseForm() {
+  if ($("exerciseCategory")) $("exerciseCategory").value = "";
+  if ($("exerciseTitle")) $("exerciseTitle").value = "";
+  if ($("exerciseImageUrl")) $("exerciseImageUrl").value = "";
+  if ($("exerciseVideoUrl")) $("exerciseVideoUrl").value = "";
+}
+
 function renderExerciseLibrary() {
   const container = $("exerciseLibraryList");
   if (!container) return;
 
   const library = getExerciseLibrary();
+  const categoryFilter = $("exerciseLibraryCategoryFilter");
+  const countElement = $("exerciseLibraryCount");
+  const normalizedSearch = ($("exerciseLibrarySearch")?.value || "")
+    .trim()
+    .toLocaleLowerCase("es");
 
-  if (!library || library.length === 0) {
+  if (!library.length) {
     container.innerHTML = "<p>No hay ejercicios cargados todavía.</p>";
+    if (categoryFilter) {
+      categoryFilter.replaceChildren(new Option("Todos los grupos", "Todos"));
+    }
+    if (countElement) countElement.textContent = "0 ejercicios encontrados";
     return;
   }
 
-  const grouped = {};
+  const categories = [...new Set(
+    library.map(exercise => exercise.category?.trim() || "Sin categoría")
+  )].sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
 
-  library.forEach(exercise => {
-    const category = exercise.category || "Sin categoría";
+  if (activeExerciseFilter !== "Todos" && !categories.includes(activeExerciseFilter)) {
+    activeExerciseFilter = null;
+  }
 
-    if (!grouped[category]) {
-      grouped[category] = [];
-    }
+  if (categoryFilter) {
+    categoryFilter.replaceChildren(
+      new Option("Todos los grupos", "Todos"),
+      ...categories.map(category => new Option(category, category))
+    );
+    categoryFilter.value = activeExerciseFilter || "Todos";
+  }
 
-    grouped[category].push(exercise);
-  });
+  const hasActiveCriteria = Boolean(activeExerciseFilter || normalizedSearch);
+  const filteredExercises = hasActiveCriteria
+    ? library.filter(exercise => {
+        const category = exercise.category?.trim() || "Sin categoría";
+        const matchesCategory =
+          !activeExerciseFilter ||
+          activeExerciseFilter === "Todos" ||
+          category === activeExerciseFilter;
+        const searchableText = `${exercise.title || ""} ${category}`
+          .toLocaleLowerCase("es");
 
-  container.innerHTML = Object.keys(grouped).map(category => `
-    <details class="category-block" open>
-      <summary>
-        <strong>${category}</strong>
-      </summary>
+        return matchesCategory &&
+          (!normalizedSearch || searchableText.includes(normalizedSearch));
+      })
+    : [];
 
-      ${grouped[category].map(exercise => `
-        <div class="media-card">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-            <div>
-              <p>
-                <strong>${exercise.title}</strong><br>
-                <small>${exercise.type === "video" ? "Video" : "Imagen"}</small>
-              </p>
+  if (countElement) {
+    countElement.textContent = `${filteredExercises.length} ${
+      filteredExercises.length === 1 ? "ejercicio encontrado" : "ejercicios encontrados"
+    }`;
+  }
 
-              <button class="btn-edit" onclick="editExerciseTitle(${exercise.id})">
-                ✏️ Editar nombre
-              </button>
+  if (!hasActiveCriteria) {
+    container.innerHTML =
+      '<p class="exercise-library-empty">Selecciona un grupo muscular o busca un ejercicio.</p>';
+    return;
+  }
+
+  if (!filteredExercises.length) {
+    container.innerHTML =
+      '<p class="exercise-library-empty">No se encontraron ejercicios.</p>';
+    return;
+  }
+
+  container.innerHTML = filteredExercises.map(exercise => {
+    const exerciseId = escapeHTML(String(exercise.id));
+    const title = escapeHTML(exercise.title || "Ejercicio sin nombre");
+    const category = escapeHTML(exercise.category || "Sin categoría");
+    const mediaUrl = escapeHTML(exercise.url || "");
+    const isVideo = exercise.type === "video";
+    const mediaPreview = mediaUrl
+      ? isVideo
+        ? `<video controls preload="metadata" src="${mediaUrl}"></video>`
+        : `<img src="${mediaUrl}" alt="${title}" loading="lazy">`
+      : '<p class="exercise-library-media-fallback">Vista previa no disponible</p>';
+
+    return `
+      <article class="media-card exercise-library-card">
+        <div class="exercise-library-card-header">
+          <div>
+            <strong>${title}</strong>
+            <div class="exercise-library-meta">
+              <span>${category}</span>
+              <span>${isVideo ? "Video" : "Imagen"}</span>
             </div>
-
-            <button class="btn-delete" onclick="deleteExerciseFromLibrary(${exercise.id})">
-              ❌
-            </button>
           </div>
 
-          ${
-            exercise.type === "video"
-              ? `<video controls><source src="${exercise.url}"></video>`
-              : `<img src="${exercise.url}" alt="${exercise.title}">`
-          }
+          <button type="button"
+                  class="btn-delete"
+                  data-library-action="delete"
+                  data-exercise-id="${exerciseId}"
+                  aria-label="Eliminar ${title}">
+            ❌
+          </button>
         </div>
-      `).join("")}
-    </details>
-  `).join("");
+
+        <div class="exercise-library-media">${mediaPreview}</div>
+
+        <button type="button"
+                class="btn-edit"
+                data-library-action="edit"
+                data-exercise-id="${exerciseId}">
+          ✏️ Editar nombre
+        </button>
+      </article>
+    `;
+  }).join("");
 }
 
 function editExerciseTitle(exerciseId) {
   const library = getExerciseLibrary();
-  const exercise = library.find(item => item.id === exerciseId);
+  const exercise = library.find(item => String(item.id) === String(exerciseId));
 
   if (!exercise) return;
 
@@ -1862,7 +2070,7 @@ function deleteExerciseFromLibrary(exerciseId) {
   if (!confirm("¿Eliminar ejercicio de la biblioteca?")) return;
 
   let library = getExerciseLibrary();
-  library = library.filter(exercise => exercise.id !== exerciseId);
+  library = library.filter(exercise => String(exercise.id) !== String(exerciseId));
   saveExerciseLibrary(library);
 
   const assignments = getUserAssignments();
@@ -3224,6 +3432,10 @@ if ($("btnGoProfile")) {
     $("btnSaveProfile").addEventListener("click", saveProfile);
   }
 
+  if ($("btnSendSuggestion")) {
+    $("btnSendSuggestion").addEventListener("click", sendProfileSuggestionByWhatsApp);
+  }
+
   if ($("btnBackToQuestionnaire")) {
     $("btnBackToQuestionnaire").addEventListener("click", () => {
       const currentUser = localStorage.getItem("currentUser");
@@ -3316,19 +3528,50 @@ if ($("btnGoProfile")) {
     });
   }
 
-  document.querySelectorAll(".filter-btn").forEach(button => {
-    button.addEventListener("click", () => {
-      activeExerciseFilter = button.dataset.category;
+  if ($("exerciseLibrarySearch")) {
+    $("exerciseLibrarySearch").addEventListener("input", renderExerciseLibrary);
+  }
 
-      document.querySelectorAll(".filter-btn").forEach(btn => {
-        btn.classList.remove("active");
-      });
-
-      button.classList.add("active");
-
+  if ($("exerciseLibraryCategoryFilter")) {
+    $("exerciseLibraryCategoryFilter").addEventListener("change", event => {
+      activeExerciseFilter = event.target.value === "Todos"
+        ? null
+        : event.target.value;
       renderExerciseLibrary();
     });
-  });
+  }
+
+  if ($("clearExerciseLibraryFilters")) {
+    $("clearExerciseLibraryFilters").addEventListener("click", () => {
+      activeExerciseFilter = null;
+      if ($("exerciseLibrarySearch")) $("exerciseLibrarySearch").value = "";
+      renderExerciseLibrary();
+    });
+  }
+
+  if ($("exerciseLibraryList")) {
+    $("exerciseLibraryList").addEventListener("click", event => {
+      const actionButton = event.target.closest("[data-library-action]");
+      if (!actionButton) return;
+
+      const exerciseId = actionButton.dataset.exerciseId;
+      if (actionButton.dataset.libraryAction === "edit") {
+        editExerciseTitle(exerciseId);
+      } else if (actionButton.dataset.libraryAction === "delete") {
+        deleteExerciseFromLibrary(exerciseId);
+      }
+    });
+
+    $("exerciseLibraryList").addEventListener("error", event => {
+      if (!event.target.matches("img, video")) return;
+
+      const mediaContainer = event.target.closest(".exercise-library-media");
+      if (mediaContainer) {
+        mediaContainer.innerHTML =
+          '<p class="exercise-library-media-fallback">Vista previa no disponible</p>';
+      }
+    }, true);
+  }
 
   if (localStorage.getItem("darkMode") === "true") {
     document.body.classList.add("dark-mode");

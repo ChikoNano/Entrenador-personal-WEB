@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Entrenador Físico - Plataforma</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260728">
 </head>
 <body class="auth-routing">
 
@@ -330,6 +330,19 @@
   </div>
 
 </details>
+
+  <section class="suggestion-card" aria-labelledby="suggestionCardTitle">
+    <h2 id="suggestionCardTitle">
+      <span aria-hidden="true">💬</span>
+      Buzón de sugerencias
+    </h2>
+    <p>Ayúdanos a mejorar nuestro servicio con tus observaciones y comentarios.</p>
+    <button class="btn suggestion-whatsapp-btn" id="btnSendSuggestion" type="button">
+      Enviar sugerencia por WhatsApp
+    </button>
+    <small>Tu opinión nos ayuda a seguir mejorando.</small>
+  </section>
+
   <div class="btn-row">
     <button class="btn" id="btnBackToQuestionnaire">Anterior</button>
     <button class="btn" id="btnToExercises">Siguiente</button>
@@ -451,10 +464,6 @@
     <input type="email"
            id="newUserEmail"
            placeholder="Correo del usuario">
-
-    <input type="password"
-           id="newUserPassword"
-           placeholder="Contraseña">
 
     <label for="newUserPlanType">TIPO DE PLAN</label>
     <select id="newUserPlanType" required>
@@ -579,10 +588,6 @@
                id="exerciseTitle"
                placeholder="Nombre del ejercicio">
 
-        <input type="file"
-       id="exerciseImageFile"
-       accept="image/*,video/mp4,video/webm">
-
        <input type="url"
        id="exerciseImageUrl"
        placeholder="URL de imagen Cloudinary">
@@ -599,17 +604,32 @@
 
     </details>
 
-    <details>
+    <section class="exercise-library-panel" aria-labelledby="exerciseLibraryTitle">
+      <h3 id="exerciseLibraryTitle">Biblioteca de ejercicios</h3>
 
-      <summary>
-        <strong>Biblioteca de ejercicios</strong>
-      </summary>
+      <div class="exercise-library-controls">
+        <input type="search"
+               id="exerciseLibrarySearch"
+               placeholder="Buscar ejercicio..."
+               autocomplete="off"
+               aria-label="Buscar ejercicio">
 
-      <div id="exerciseLibraryList"
-           style="margin-top:14px;">
+        <select id="exerciseLibraryCategoryFilter"
+                class="exercise-library-category-filter"
+                aria-label="Filtrar por grupo muscular">
+          <option value="Todos">Todos los grupos</option>
+        </select>
+
+        <div class="exercise-library-toolbar">
+          <span id="exerciseLibraryCount" aria-live="polite">0 ejercicios encontrados</span>
+          <button type="button" id="clearExerciseLibraryFilters" class="btn-edit">
+            Limpiar filtros
+          </button>
+        </div>
       </div>
 
-    </details>
+      <div id="exerciseLibraryList" class="exercise-library-results"></div>
+    </section>
 
   </div>
 
@@ -754,17 +774,17 @@
 
   <!-- JS PRINCIPAL -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/supabase-config.js"></script>
-  <script src="js/supabase-auth.js"></script>
-  <script src="js/supabase-profiles.js"></script>
-  <script src="js/supabase-questionnaires.js"></script>
-  <script src="js/supabase-exercises.js"></script>
-  <script src="js/supabase-routines.js"></script>
-  <script src="js/supabase-subscriptions.js"></script>
-  <script src="js/supabase-progress.js"></script>
-  <script src="js/supabase-storage.js"></script>
-  <script src="js/migration-localstorage.js"></script>
-  <script src="app.js"></script>
+  <script src="js/supabase-config.js?v=20260728"></script>
+  <script src="js/supabase-auth.js?v=20260728"></script>
+  <script src="js/supabase-profiles.js?v=20260728"></script>
+  <script src="js/supabase-questionnaires.js?v=20260728"></script>
+  <script src="js/supabase-exercises.js?v=20260728"></script>
+  <script src="js/supabase-routines.js?v=20260728"></script>
+  <script src="js/supabase-subscriptions.js?v=20260728"></script>
+  <script src="js/supabase-progress.js?v=20260728"></script>
+  <script src="js/supabase-storage.js?v=20260728"></script>
+  <script src="js/migration-localstorage.js?v=20260728"></script>
+  <script src="app.js?v=20260728"></script>
 
 </body>
 </html>
