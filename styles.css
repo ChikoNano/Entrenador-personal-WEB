@@ -465,6 +465,64 @@ summary:focus-visible {
   overflow: hidden;
 }
 
+.password-field {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.password-field > input {
+  width: 100%;
+  padding-right: 3.5rem;
+}
+
+.password-visibility-toggle {
+  position: absolute;
+  top: 50%;
+  right: .55rem;
+  z-index: 2;
+  width: 44px !important;
+  min-width: 44px !important;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-soft) !important;
+  box-shadow: none;
+  transform: translateY(-50%);
+  touch-action: manipulation;
+}
+
+.password-visibility-toggle::after {
+  display: none;
+}
+
+.password-visibility-toggle:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong) !important;
+  box-shadow: none;
+  filter: none;
+  transform: translateY(-50%);
+}
+
+.password-visibility-toggle:active {
+  transform: translateY(-50%) scale(.96);
+}
+
+.password-eye {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
 .password-setup-eyebrow {
   margin-bottom: .75rem;
   color: var(--accent-strong);

@@ -388,6 +388,26 @@ function showPasswordSetupMessage(message, type = "error") {
   if (type === "success") element.classList.add("success");
 }
 
+function togglePasswordVisibility(button) {
+  const input = $(button?.dataset.passwordToggle);
+  if (!input) return;
+
+  const selectionStart = input.selectionStart;
+  const selectionEnd = input.selectionEnd;
+  const shouldShowPassword = input.type === "password";
+
+  input.type = shouldShowPassword ? "text" : "password";
+  button.setAttribute("aria-label", shouldShowPassword ? "Ocultar contraseña" : "Mostrar contraseña");
+  button.setAttribute("aria-pressed", String(shouldShowPassword));
+  button.querySelector(".password-eye-open")?.classList.toggle("hidden", shouldShowPassword);
+  button.querySelector(".password-eye-off")?.classList.toggle("hidden", !shouldShowPassword);
+
+  input.focus({ preventScroll: true });
+  if (selectionStart !== null && selectionEnd !== null) {
+    input.setSelectionRange(selectionStart, selectionEnd);
+  }
+}
+
 function configurePasswordSetupView(mode = "invite") {
   passwordSetupMode = mode === "recovery" ? "recovery" : "invite";
   if ($("passwordSetupTitle")) {
@@ -3314,6 +3334,12 @@ document.addEventListener("DOMContentLoaded", async () => {
  document.body.classList.remove("auth-routing");
 
  document.addEventListener("click", event => {
+  const passwordToggle = event.target.closest("[data-password-toggle]");
+  if (passwordToggle) {
+    togglePasswordVisibility(passwordToggle);
+    return;
+  }
+
   const informationButton = event.target.closest("[data-aerobic-info]");
   if (informationButton) {
     openAerobicTestModal(informationButton.dataset.aerobicInfo, informationButton);
