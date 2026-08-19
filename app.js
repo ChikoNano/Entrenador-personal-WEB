@@ -1046,7 +1046,10 @@ function ensureSupabaseAuthStateListener() {
       return;
     }
 
-    if (!["INITIAL_SESSION", "SIGNED_IN"].includes(event) || !session?.user?.id) return;
+    // SIGNED_IN también puede emitirse para una sesión que ya estaba activa (por
+    // ejemplo, al volver a enfocar la pestaña). El login explícito ya carga la
+    // sesión; aquí sólo se restaura el estado inicial de una nueva carga.
+    if (event !== "INITIAL_SESSION" || !session?.user?.id) return;
     window.setTimeout(() => {
       loadRestoredSupabaseSession(session).catch(error => {
         console.error("Error al reintentar la restauración de sesión:", error);
@@ -1672,8 +1675,49 @@ function showProfilePhoto() {
 
 /* BIBLIOTECA */
 
+function normalizeExercise(exercise) {
+  if (!exercise || typeof exercise !== "object") return exercise;
+
+  const textValue = (...values) => {
+    const value = values.find(candidate =>
+      typeof candidate === "string" && candidate.trim()
+    );
+    return value?.trim();
+  };
+
+  const title = textValue(
+    exercise.title,
+    exercise.name,
+    exercise.nombre,
+    exercise.exerciseName
+  );
+  const category = textValue(
+    exercise.category,
+    exercise.muscle_group,
+    exercise.muscleGroup,
+    exercise.grupoMuscular
+  );
+  const url = textValue(exercise.url, exercise.media_url, exercise.videoUrl, exercise.imageUrl);
+  const type = textValue(exercise.type, exercise.media_type) ||
+    (textValue(exercise.videoUrl) ? "video" : undefined);
+
+  return {
+    ...exercise,
+    ...(title ? { title } : {}),
+    ...(category ? { category } : {}),
+    ...(url ? { url } : {}),
+    ...(type ? { type } : {})
+  };
+}
+
 function getExerciseLibrary() {
-  return JSON.parse(localStorage.getItem("exerciseLibrary")) || [];
+  try {
+    const library = JSON.parse(localStorage.getItem("exerciseLibrary"));
+    return Array.isArray(library) ? library.map(normalizeExercise) : [];
+  } catch (error) {
+    console.error("No se pudo leer la biblioteca de ejercicios:", error);
+    return [];
+  }
 }
 
 function saveExerciseLibrary(library) {
@@ -2014,21 +2058,41 @@ function renderExerciseLibrary() {
   }).join("");
 }
 
-function editExerciseTitle(exerciseId) {
+async function editExerciseTitle(exerciseId) {
   const library = getExerciseLibrary();
-  const exercise = library.find(item => String(item.id) === String(exerciseId));
+  const exerciseIndex = library.findIndex(item => String(item.id) === String(exerciseId));
+  const exercise = library[exerciseIndex];
 
   if (!exercise) return;
 
-  const newTitle = prompt("Nuevo nombre del ejercicio:", exercise.title);
+  const newTitle = prompt("Nuevo nombre del ejercicio:", exercise.title || "")?.trim();
 
-  if (!newTitle || !newTitle.trim()) return;
+  if (!newTitle || newTitle === exercise.title) return;
 
-  exercise.title = newTitle.trim();
+  try {
+    if (window.TrainerSupabase?.isConfigured()) {
+      const supabase = window.TrainerSupabase.getClient();
+      const { data, error } = await supabase
+        .from("exercises")
+        .update({ title: newTitle })
+        .eq("id", exercise.id)
+        .select()
+        .single();
 
-  saveExerciseLibrary(library);
-  renderAdminData();
-  renderUserExercises();
+      if (error) throw new Error(error.message || "No se pudo actualizar el ejercicio");
+      if (!data || String(data.id) !== String(exercise.id)) {
+        throw new Error("Supabase no devolvió el ejercicio actualizado");
+      }
+    }
+
+    library[exerciseIndex] = { ...exercise, title: newTitle };
+    saveExerciseLibrary(library);
+    renderAdminData();
+    renderUserExercises();
+  } catch (error) {
+    console.error("No se pudo editar el nombre del ejercicio:", error);
+    alert(`No se pudo editar el ejercicio: ${error.message || "Error desconocido"}`);
+  }
 }
 
 function getSelectedExerciseCategory() {
@@ -2086,34 +2150,36 @@ function renderExerciseSelect(category = getSelectedExerciseCategory()) {
   }
 }
 
-function deleteExerciseFromLibrary(exerciseId) {
+async function deleteExerciseFromLibrary(exerciseId) {
   if (!confirm("¿Eliminar ejercicio de la biblioteca?")) return;
 
-  let library = getExerciseLibrary();
-  library = library.filter(exercise => String(exercise.id) !== String(exerciseId));
-  saveExerciseLibrary(library);
+  const library = getExerciseLibrary();
+  const exercise = library.find(item => String(item.id) === String(exerciseId));
+  if (!exercise) return;
 
-  const assignments = getUserAssignments();
+  try {
+    if (window.TrainerSupabase?.isConfigured()) {
+      const result = await window.TrainerSupabase.exercises.deactivateExercise(exercise.id);
 
-  Object.keys(assignments).forEach(userEmail => {
-    const days = assignments[userEmail];
-    if (Array.isArray(days)) {
-      assignments[userEmail] = days.filter(item => (item?.exerciseId ?? item) !== exerciseId);
-      return;
+      if (result.error) {
+        throw new Error(result.error.message || "No se pudo eliminar el ejercicio");
+      }
+
+      if (!result.data ||
+          String(result.data.id) !== String(exercise.id) ||
+          result.data.active !== false) {
+        throw new Error("Supabase no confirmó la eliminación del ejercicio");
+      }
     }
-    if (days && typeof days === "object") {
-      Object.keys(days).forEach(day => {
-        if (Array.isArray(days[day])) {
-          days[day] = days[day].filter(item => (item?.exerciseId ?? item) !== exerciseId);
-        }
-      });
-    }
-  });
 
-  saveUserAssignments(assignments);
-
-  renderAdminData();
-  renderUserExercises();
+    const updatedLibrary = library.filter(item => String(item.id) !== String(exercise.id));
+    saveExerciseLibrary(updatedLibrary);
+    renderAdminData();
+    renderUserExercises();
+  } catch (error) {
+    console.error("No se pudo eliminar el ejercicio:", error);
+    alert(`No se pudo eliminar el ejercicio: ${error.message || "Error desconocido"}`);
+  }
 }
 
 async function compressImage(file) {
