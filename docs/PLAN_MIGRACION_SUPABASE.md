@@ -16,7 +16,7 @@ Auth identifica por UUID. `profiles` modela usuarios/entrenadores, `initial_asse
 6. Configurar Site URL y Redirect URLs (producción y localhost) en Authentication > URL Configuration.
 7. Sustituir solo los placeholders públicos en `js/supabase-config.js`. La clave debe ser publishable/anon, nunca service role.
 8. Desplegar `invite-user`: `supabase functions deploy invite-user`.
-9. Crear secretos: `supabase secrets set SUPABASE_URL=... SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=... INVITE_REDIRECT_URL=...`.
+9. Crear secretos: `supabase secrets set SUPABASE_URL=... SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=... SITE_URL=...`.
 10. Probar RLS con dos cuentas antes de migrar datos.
 
 ## Invitaciones y contraseña
@@ -44,7 +44,7 @@ No se modificó `backup-antes-supabase`. Para volver, cambie a esa rama de maner
 ## Variables y configuración
 
 - Frontend: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`.
-- Edge Function: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `INVITE_REDIRECT_URL`.
+- Edge Function: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SITE_URL`.
 - Redirect URLs: URL publicada y URL exacta de desarrollo. No usar comodines amplios en producción.
 
 ## Archivos de la fase

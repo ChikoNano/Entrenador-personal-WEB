@@ -46,6 +46,13 @@
         .eq("user_id", userId).eq("status", "active")
         .order("created_at", { ascending: false }).limit(1).maybeSingle());
     },
+    getAccessSubscription(userId) {
+      if (!userId) return Promise.resolve(ns.fail("ID obligatorio", "getAccessSubscription"));
+      return run("getAccessSubscription", client => client.from("subscription_overview")
+        .select("id,user_id,plan_type,start_date,expiration_date,status,effective_status,created_at")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle());
+    },
     async listSubscriptions() {
       const result = await run("listSubscriptions", client => client.from("subscriptions").select("*")
         .eq("status", "active").order("created_at", { ascending: false }));

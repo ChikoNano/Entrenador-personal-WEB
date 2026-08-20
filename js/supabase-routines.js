@@ -42,7 +42,7 @@
     listUserRoutines(userId) {
       if (!userId) return Promise.resolve(ns.fail("ID obligatorio", "listUserRoutines"));
       return run("listUserRoutines", client => client.from("routines")
-        .select("id, name, user_id, trainer_id, active, created_at, routine_exercises(id, exercise_id, week_number, day_name, sets, repetitions, rest_seconds, notes, display_order, exercises(title, media_type, media_url, category))")
+        .select("id, name, user_id, trainer_id, active, created_at, routine_exercises(id, exercise_id, week_number, day_name, sets, repetitions, rest_seconds, notes, display_order, exercises(title, media_type, media_url, category, active))")
         .eq("user_id", userId).eq("active", true).order("created_at"));
     },
     async listOwnActiveRoutines() {
@@ -51,7 +51,7 @@
       const userId = authData?.user?.id;
       if (authError || !userId) return ns.fail(authError || "Sesión requerida", "listOwnActiveRoutines:auth");
       const result = await run("listOwnActiveRoutines", db => db.from("routines")
-        .select("id, name, user_id, active, routine_exercises(id, exercise_id, week_number, day_name, sets, repetitions, rest_seconds, notes, display_order, exercises(title, media_type, media_url, category))")
+        .select("id, name, user_id, active, routine_exercises(id, exercise_id, week_number, day_name, sets, repetitions, rest_seconds, notes, display_order, exercises(title, media_type, media_url, category, active))")
         .eq("user_id", userId).eq("active", true).order("created_at"));
       return result.error ? result : ns.ok({ userId, routines: result.data || [] });
     },

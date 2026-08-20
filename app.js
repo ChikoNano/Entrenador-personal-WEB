@@ -33,6 +33,23 @@ const defaultUsers = {
   "usuario@test.com": { password: "1234", role: "user", name: "Usuario" },
   "admin@test.com": { password: "admin", role: "admin", name: "Entrenador" }
 };
+const AUTH_SERVICE_UNAVAILABLE_MESSAGE =
+  "El servicio de inicio de sesión no está disponible temporalmente. Inténtalo más tarde.";
+const SUBSCRIPTION_EXPIRED_MESSAGE =
+  "Tu suscripción ha vencido. Contacta a tu entrenador para renovarla.";
+const SUBSCRIPTION_INACTIVE_MESSAGE =
+  "Tu suscripción no está activa. Contacta a tu entrenador.";
+const SUBSCRIPTION_MISSING_MESSAGE =
+  "No encontramos una suscripción activa para tu cuenta. Contacta a tu entrenador.";
+const SUBSCRIPTION_CHECK_ERROR_MESSAGE =
+  "No pudimos verificar tu suscripción temporalmente. Inténtalo más tarde.";
+const ASSESSMENT_STATUS = Object.freeze({
+  COMPLETED: "COMPLETED",
+  NOT_FOUND: "NOT_FOUND",
+  ERROR: "ERROR"
+});
+const ASSESSMENT_CHECK_ERROR_MESSAGE =
+  "No pudimos cargar tu evaluación temporalmente. Inténtalo más tarde.";
 
 const allowedPlanTypes = ["Plan personal", "Plan grupal", "Plan APP"];
 const subscriptionPlanOptions = [
@@ -444,7 +461,7 @@ async function requestPasswordRecovery() {
 
   const result = await window.TrainerSupabase.auth.resetPassword(
     email,
-    "https://chikonano.github.io/Entrenador-personal-WEB/"
+    window.TrainerSupabase.getAppUrl()
   );
   if (result.error) {
     console.error("No se pudo solicitar la recuperación de contraseña.");
@@ -505,7 +522,7 @@ function clearSupabaseAuthCallbackUrl() {
   window.history.replaceState(
     {},
     document.title,
-    `${window.location.origin}${window.location.pathname}`
+    window.TrainerSupabase.getAppUrl()
   );
 }
 
@@ -868,53 +885,82 @@ async function login() {
     return;
   }
 
-  // Supabase es autoritativo cuando está configurado. El modo local solo permite
-  // probar la transición y no debe usarse como autenticación de producción.
-  if (window.TrainerSupabase?.isConfigured()) {
-    const signedIn = await window.TrainerSupabase.auth.signIn(email, password);
-    if (signedIn.error) {
-      alert(signedIn.error.message || "Correo o contraseña incorrectos");
-      return;
-    }
-    const session = signedIn.data?.session;
-    if (!session?.user?.id || !(await loadRestoredSupabaseSession(session))) {
-      alert("No se pudo cargar tu perfil");
-    }
+  if (!window.TrainerSupabase?.isConfigured()) {
+    alert(AUTH_SERVICE_UNAVAILABLE_MESSAGE);
     return;
   }
 
-  const users = getUsers();
-  const user = users[email];
-
-  if (!user || user.password !== password) {
-    alert("Correo o contraseña incorrectos");
+  const signedIn = await window.TrainerSupabase.auth.signIn(email, password);
+  if (signedIn.error) {
+    const errorMessage = signedIn.error.message || "";
+    const connectionFailed = /failed to fetch|network|conexión|timeout|load failed/i.test(errorMessage);
+    alert(connectionFailed
+      ? AUTH_SERVICE_UNAVAILABLE_MESSAGE
+      : errorMessage || AUTH_SERVICE_UNAVAILABLE_MESSAGE);
     return;
   }
 
-  if (isUserExpired(user)) {
-  alert("Tu acceso ha vencido. Contacta a tu entrenador para renovar.");
-  return;
+  const session = signedIn.data?.session;
+  if (!session?.user?.id) {
+    alert("No se pudo cargar tu perfil");
+    return;
+  }
+  await loadRestoredSupabaseSession(session);
 }
 
-  localStorage.setItem("currentUser", email);
-  localStorage.setItem("currentRole", user.role);
+async function getSupabaseAssessmentState(userId) {
+  const result = await window.TrainerSupabase.questionnaires.getAssessment(userId);
+  if (result.error) {
+    console.error("No se pudo consultar la evaluación inicial:", result.error);
+    return { status: ASSESSMENT_STATUS.ERROR, error: result.error };
+  }
+  if (!result.data || result.data.completed !== true) {
+    return { status: ASSESSMENT_STATUS.NOT_FOUND, assessment: result.data || null };
+  }
+  return { status: ASSESSMENT_STATUS.COMPLETED, assessment: result.data };
+}
 
-  startSession(email, user);
+function cacheSupabaseAssessment(email, assessment) {
+  localStorage.setItem(`questionnaire_${email}`, JSON.stringify({
+    goal: assessment.goal,
+    previousTraining: assessment.previous_training,
+    trainingDays: assessment.training_days,
+    sessionDuration: assessment.session_duration,
+    gymExperience: assessment.gym_experience,
+    physicalActivity: assessment.physical_activity,
+    hasInjury: assessment.has_injury,
+    injuryDescription: assessment.injury_description,
+    completed: assessment.completed,
+    completedAt: assessment.completed_at
+  }));
+}
+
+function blockSupabaseAssessmentLoadError() {
+  localStorage.removeItem("currentUser");
+  localStorage.removeItem("currentRole");
+  initializedSupabaseUserId = "";
+  alert(ASSESSMENT_CHECK_ERROR_MESSAGE);
+  goToPage("loginPage");
 }
 
 async function startSession(email, user, authenticatedUserId = "") {
+  if (!window.TrainerSupabase?.isConfigured() || !authenticatedUserId) {
+    console.error("Se rechazó un intento de iniciar sesión sin autenticación de Supabase.");
+    goToPage("loginPage");
+    return false;
+  }
+
   await initializeExerciseLibrary();
 
-  if (window.TrainerSupabase?.isConfigured() && user.supabaseId) {
-    const assessmentResult = await window.TrainerSupabase.questionnaires.getAssessment(user.supabaseId);
-    if (!assessmentResult.error && assessmentResult.data) {
-      const a = assessmentResult.data;
-      localStorage.setItem(`questionnaire_${email}`, JSON.stringify({
-        goal: a.goal, previousTraining: a.previous_training, trainingDays: a.training_days,
-        sessionDuration: a.session_duration, gymExperience: a.gym_experience,
-        physicalActivity: a.physical_activity, hasInjury: a.has_injury,
-        injuryDescription: a.injury_description, completed: a.completed, completedAt: a.completed_at
-      })); // caché temporal para renderizadores heredados
+  let assessmentState = null;
+  if (user.role === "user") {
+    assessmentState = await getSupabaseAssessmentState(authenticatedUserId);
+    if (assessmentState.status === ASSESSMENT_STATUS.ERROR) {
+      blockSupabaseAssessmentLoadError();
+      return false;
+    }
+    if (assessmentState.status === ASSESSMENT_STATUS.COMPLETED) {
+      cacheSupabaseAssessment(email, assessmentState.assessment);
     }
   }
 
@@ -944,18 +990,17 @@ async function startSession(email, user, authenticatedUserId = "") {
 
   if (user.role === "admin") {
     goToPage("adminPage");
-    return;
+    return true;
   }
 
-  const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${email}`));
-
-  if (questionnaire?.completed) {
+  if (assessmentState?.status === ASSESSMENT_STATUS.COMPLETED) {
     goToPage("profilePage");
   } else {
     currentSlide = 0;
     goToPage("questionnairePage");
     showSlide(currentSlide);
   }
+  return true;
 }
 
 async function logout() {
@@ -973,6 +1018,47 @@ async function logout() {
   if ($("whoami")) $("whoami").classList.add("hidden");
   if ($("btnLogout")) $("btnLogout").classList.add("hidden");
 
+  goToPage("loginPage");
+}
+
+async function getSupabaseSubscriptionAccess(profile) {
+  if (["admin", "trainer"].includes(profile?.role)) {
+    return { allowed: true, reason: "staff" };
+  }
+
+  if (profile?.role !== "user" || !profile?.id) {
+    return { allowed: false, reason: "missing", message: SUBSCRIPTION_MISSING_MESSAGE };
+  }
+
+  const result = await window.TrainerSupabase.subscriptions.getAccessSubscription(profile.id);
+  if (result.error) {
+    console.error("No se pudo verificar la suscripción:", result.error);
+    return { allowed: false, reason: "error", message: SUBSCRIPTION_CHECK_ERROR_MESSAGE };
+  }
+
+  const subscription = result.data;
+  if (!subscription) {
+    return { allowed: false, reason: "missing", message: SUBSCRIPTION_MISSING_MESSAGE };
+  }
+
+  if (subscription.effective_status !== "active") {
+    const reason = subscription.effective_status || "inactive";
+    return {
+      allowed: false,
+      reason,
+      message: reason === "expired" ? SUBSCRIPTION_EXPIRED_MESSAGE : SUBSCRIPTION_INACTIVE_MESSAGE
+    };
+  }
+
+  return { allowed: true, reason: "active", subscription };
+}
+
+function blockSupabaseSubscriptionAccess(message) {
+  localStorage.removeItem("currentUser");
+  localStorage.removeItem("currentRole");
+  initializedSupabaseUserId = "";
+  currentSupabaseProfile = null;
+  alert(message);
   goToPage("loginPage");
 }
 
@@ -1001,15 +1087,22 @@ async function loadRestoredSupabaseSession(session) {
 
     const profile = profileResult.data;
     console.log("Perfil recibido:", profile);
+    const subscriptionAccess = await getSupabaseSubscriptionAccess(profile);
+    if (!subscriptionAccess.allowed) {
+      blockSupabaseSubscriptionAccess(subscriptionAccess.message);
+      return false;
+    }
+
     const email = profile.email || session.user.email;
     localStorage.setItem("currentUser", email);
     localStorage.setItem("currentRole", profile.role);
 
-    await startSession(
+    const sessionStarted = await startSession(
       email,
       { name: profile.full_name || email, role: profile.role, supabaseId: profile.id },
       userId
     );
+    if (!sessionStarted) return false;
 
     initializedSupabaseUserId = userId;
     console.log("Pantalla renderizada:", profile.role === "admin" ? "adminPage" : "perfil/cuestionario");
@@ -1060,59 +1153,48 @@ function ensureSupabaseAuthStateListener() {
 }
 
 async function restoreSession() {
-  if (window.TrainerSupabase?.isConfigured()) {
-    if (authCallbackFlowActive || isCompletingPasswordSetup) {
-      if (initialSupabaseAuthCallback.active || isCompletingPasswordSetup) {
-        goToPage("passwordSetupPage");
-        return;
-      }
-
-      const result = await window.TrainerSupabase.auth.signOut();
-      if (result.error) {
-        console.error("No se pudo cerrar una sesión temporal pendiente:", result.error);
-      }
-      clearTemporarySupabaseAuthState();
-      authCallbackFlowActive = false;
-      goToPage("loginPage");
-      return;
-    }
-
-    console.log("Inicio restauración");
-    ensureSupabaseAuthStateListener();
-
-    const sessionResult = await window.TrainerSupabase.auth.getSession();
-    if (sessionResult.error) {
-      console.error("Error al restaurar sesión:", sessionResult.error);
-    }
-
-    const session = sessionResult.data?.session;
-    if (session?.user?.id) {
-      await loadRestoredSupabaseSession(session);
-      return;
-    }
-
-    // INITIAL_SESSION o SIGNED_IN reintentará la carga si la sesión llega después.
+  if (!window.TrainerSupabase?.isConfigured()) {
     localStorage.removeItem("currentUser");
     localStorage.removeItem("currentRole");
-    goToPage("loginPage");
-    return;
-  }
-  const currentUser = localStorage.getItem("currentUser");
-
-  if (!currentUser) {
+    console.error(AUTH_SERVICE_UNAVAILABLE_MESSAGE);
     goToPage("loginPage");
     return;
   }
 
-  const users = getUsers();
-  const user = users[currentUser];
+  if (authCallbackFlowActive || isCompletingPasswordSetup) {
+    if (initialSupabaseAuthCallback.active || isCompletingPasswordSetup) {
+      goToPage("passwordSetupPage");
+      return;
+    }
 
-  if (!user) {
-    logout();
+    const result = await window.TrainerSupabase.auth.signOut();
+    if (result.error) {
+      console.error("No se pudo cerrar una sesión temporal pendiente:", result.error);
+    }
+    clearTemporarySupabaseAuthState();
+    authCallbackFlowActive = false;
+    goToPage("loginPage");
     return;
   }
 
-  await startSession(currentUser, user);
+  console.log("Inicio restauración");
+  ensureSupabaseAuthStateListener();
+
+  const sessionResult = await window.TrainerSupabase.auth.getSession();
+  if (sessionResult.error) {
+    console.error("Error al restaurar sesión:", sessionResult.error);
+  }
+
+  const session = sessionResult.data?.session;
+  if (session?.user?.id) {
+    await loadRestoredSupabaseSession(session);
+    return;
+  }
+
+  // INITIAL_SESSION reintentará la carga si la sesión llega después.
+  localStorage.removeItem("currentUser");
+  localStorage.removeItem("currentRole");
+  goToPage("loginPage");
 }
 
 /* PERFIL */
@@ -1469,7 +1551,10 @@ function renderProfileCard() {
 
   const profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`));
   const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${currentUser}`));
-  const photo = pendingProfilePhotoPreviewUrl || localStorage.getItem(`profilePhoto_${currentUser}`);
+  const photo = sanitizeMediaURL(
+    pendingProfilePhotoPreviewUrl || localStorage.getItem(`profilePhoto_${currentUser}`),
+    { allowBlob: true, allowDataImage: true }
+  );
   const userNumber =
     currentSupabaseProfile?.user_number ??
     profile?.user_number ??
@@ -1479,33 +1564,33 @@ function renderProfileCard() {
     <div class="profile-card-inner">
       ${
         photo
-          ? `<img src="${photo}" class="profile-photo" alt="Foto de perfil">`
+          ? `<img src="${escapeHTML(photo)}" class="profile-photo" alt="Foto de perfil">`
           : `<div class="profile-placeholder">👤</div>`
       }
 
-      <h2 class="${userNumber !== null ? "profile-name-with-number" : ""}">${profile?.name || "Tu nombre"}</h2>
+      <h2 class="${userNumber !== null ? "profile-name-with-number" : ""}">${escapeHTML(profile?.name || "Tu nombre")}</h2>
       ${userNumber !== null
         ? `<span class="profile-user-number">#${escapeHTML(userNumber)}</span>`
         : ""
       }
 
       <p class="profile-objective">
-        ${profile?.goal || questionnaire?.goal || questionnaire?.objetivo || "Objetivo pendiente"}
+        ${escapeHTML(profile?.goal || questionnaire?.goal || questionnaire?.objetivo || "Objetivo pendiente")}
       </p>
 
       <div class="profile-stats">
         <div>
-          <strong>${profile?.age || "--"}</strong>
+          <strong>${escapeHTML(profile?.age || "--")}</strong>
           <span>Edad</span>
         </div>
 
         <div>
-          <strong>${profile?.weight || "--"} kg</strong>
+          <strong>${escapeHTML(profile?.weight || "--")} kg</strong>
           <span>Peso</span>
         </div>
 
         <div>
-          <strong>${profile?.height || "--"}</strong>
+          <strong>${escapeHTML(profile?.height || "--")}</strong>
           <span>Altura</span>
         </div>
       </div>
@@ -1591,7 +1676,7 @@ function previewSelectedProfilePhoto(event) {
       return;
     }
 
-    preview.src = previewUrl;
+    preview.src = sanitizeMediaURL(previewUrl, { allowDataImage: true });
     preview.classList.remove("hidden");
     preview.style.display = "block";
     console.log("Src actualizado:", Boolean(preview.src));
@@ -1662,7 +1747,10 @@ function showProfilePhoto() {
 
   if (!currentUser || !preview) return;
 
-  const savedPhoto = pendingProfilePhotoPreviewUrl || localStorage.getItem(`profilePhoto_${currentUser}`);
+  const savedPhoto = sanitizeMediaURL(
+    pendingProfilePhotoPreviewUrl || localStorage.getItem(`profilePhoto_${currentUser}`),
+    { allowBlob: true, allowDataImage: true }
+  );
 
   if (!savedPhoto) {
     preview.classList.add("hidden");
@@ -1813,6 +1901,13 @@ async function addExerciseToLibraryLegacy() {
     return;
   }
 
+  const mediaUrl = videoUrl || imageUrl;
+  const safeMediaUrl = sanitizeMediaURL(mediaUrl);
+  if (!safeMediaUrl) {
+    alert("La URL multimedia no es segura. Usa HTTPS; HTTP sólo está permitido en desarrollo local.");
+    return;
+  }
+
   try {
     const library = getExerciseLibrary();
 
@@ -1821,10 +1916,10 @@ async function addExerciseToLibraryLegacy() {
 
     if (videoUrl) {
       type = "video";
-      url = videoUrl;
+      url = safeMediaUrl;
     } else if (imageUrl) {
       type = "image";
-      url = imageUrl;
+      url = safeMediaUrl;
     }
 
     library.push({
@@ -1860,12 +1955,13 @@ async function addExerciseToLibrary() {
   const videoUrl = $("exerciseVideoUrl")?.value.trim();
   const mediaType = videoUrl ? "video" : "image";
   const mediaUrl = videoUrl || imageUrl;
+  const safeMediaUrl = sanitizeMediaURL(mediaUrl);
   const payload = {
     category: muscleGroup,
     muscle_group: muscleGroup,
     title,
     media_type: mediaType,
-    media_url: mediaUrl,
+    media_url: safeMediaUrl,
     active: true
   };
 
@@ -1882,6 +1978,11 @@ async function addExerciseToLibrary() {
 
   if (!mediaUrl) {
     alert("Agrega una imagen o pega la URL del video");
+    return;
+  }
+
+  if (!safeMediaUrl) {
+    alert("La URL multimedia no es segura. Usa HTTPS; HTTP sólo está permitido en desarrollo local.");
     return;
   }
 
@@ -1924,7 +2025,7 @@ async function addExerciseToLibrary() {
       category: muscleGroup,
       title,
       type: mediaType,
-      url: mediaUrl
+      url: safeMediaUrl
     });
     saveExerciseLibrary(library);
     clearNewExerciseForm();
@@ -2017,7 +2118,7 @@ function renderExerciseLibrary() {
     const exerciseId = escapeHTML(String(exercise.id));
     const title = escapeHTML(exercise.title || "Ejercicio sin nombre");
     const category = escapeHTML(exercise.category || "Sin categoría");
-    const mediaUrl = escapeHTML(exercise.url || "");
+    const mediaUrl = escapeHTML(sanitizeMediaURL(exercise.url));
     const isVideo = exercise.type === "video";
     const mediaPreview = mediaUrl
       ? isVideo
@@ -2133,17 +2234,16 @@ function renderExerciseSelect(category = getSelectedExerciseCategory()) {
       );
 
   if (filteredExercises.length === 0) {
-    select.innerHTML = `<option value="">No hay ejercicios en este grupo</option>`;
+    select.replaceChildren(new Option("No hay ejercicios en este grupo", ""));
     select.disabled = true;
     return;
   }
 
   select.disabled = false;
-  select.innerHTML = filteredExercises.map(exercise => `
-    <option value="${exercise.id}">
-      ${exercise.category || "Sin categoría"} - ${exercise.title} (${exercise.type})
-    </option>
-  `).join("");
+  select.replaceChildren(...filteredExercises.map(exercise => new Option(
+    `${exercise.category || "Sin categoría"} - ${exercise.title || "Ejercicio"} (${exercise.type || ""})`,
+    String(exercise.id ?? "")
+  )));
 
   if (filteredExercises.some(exercise => String(exercise.id) === selectedExerciseId)) {
     select.value = selectedExerciseId;
@@ -2277,11 +2377,14 @@ function renderUserSelect(refreshRemoteRelatedViews = true) {
     return;
   }
 
-  select.innerHTML = userEmails.map(email => `
-    <option value="${supabaseMode ? users[email].supabaseId : email}" data-email="${escapeHTML(email)}">
-      ${escapeHTML(formatAdministrativeUserLabel(email, users[email], true))}
-    </option>
-  `).join("");
+  select.replaceChildren(...userEmails.map(email => {
+    const option = new Option(
+      formatAdministrativeUserLabel(email, users[email], true),
+      String(supabaseMode ? users[email].supabaseId : email)
+    );
+    option.dataset.email = email;
+    return option;
+  }));
 
   if (refreshRemoteRelatedViews) renderSelectedUserAssignments();
   renderSelectedUserProfile();
@@ -2403,7 +2506,7 @@ async function renderSelectedUserAssignments() {
     );
     container.innerHTML = exercises.length ? exercises.map(item => {
       const exercise = Array.isArray(item.exercises) ? item.exercises[0] : item.exercises;
-      const mediaUrl = String(exercise?.media_url || "").trim();
+      const mediaUrl = sanitizeMediaURL(exercise?.media_url);
       const mediaType = exercise?.media_type;
       const media = mediaUrl && mediaType === "video"
         ? `<video controls preload="metadata" src="${escapeHTML(mediaUrl)}" data-assigned-media></video>`
@@ -2467,7 +2570,7 @@ if (!Array.isArray(validExercises) || validExercises.length === 0) {
 
     html += `
       <details class="admin-routine-day" open>
-        <summary>${day}</summary>
+        <summary>${escapeHTML(day)}</summary>
 
         ${validExercises.map(item => {
           const exerciseId =
@@ -2486,14 +2589,14 @@ if (!Array.isArray(validExercises) || validExercises.length === 0) {
               <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
                 <div>
                   <p>
-                    <strong>${exercise.title}</strong><br>
-                    <small>${exercise.category || "Sin categoría"}</small>
+                    <strong>${escapeHTML(exercise.title || "Ejercicio")}</strong><br>
+                    <small>${escapeHTML(exercise.category || "Sin categoría")}</small>
                   </p>
 
                   <p>
-                    💪 ${item.sets || "--"} series |
-                    🔁 ${item.reps || "--"} reps |
-                    ⏱ ${item.rest || "--"}s descanso
+                    💪 ${escapeHTML(item.sets || "--")} series |
+                    🔁 ${escapeHTML(item.reps || "--")} reps |
+                    ⏱ ${escapeHTML(item.rest || "--")}s descanso
                   </p>
                 </div>
 
@@ -2505,11 +2608,11 @@ if (!Array.isArray(validExercises) || validExercises.length === 0) {
                 </button>
               </div>
 
-              ${
-                exercise.type === "video"
-                  ? `<video controls><source src="${exercise.url}"></video>`
-                  : `<img src="${exercise.url}" alt="${exercise.title}">`
-              }
+              ${sanitizeMediaURL(exercise.url)
+                ? exercise.type === "video"
+                  ? `<video controls><source src="${escapeHTML(sanitizeMediaURL(exercise.url))}"></video>`
+                  : `<img src="${escapeHTML(sanitizeMediaURL(exercise.url))}" alt="${escapeHTML(exercise.title || "Ejercicio")}">`
+                : '<p class="assigned-media-fallback">Vista previa no disponible</p>'}
             </div>
           `;
         }).join("")}
@@ -2521,18 +2624,81 @@ if (!Array.isArray(validExercises) || validExercises.length === 0) {
     html || "<p>Este usuario no tiene ejercicios asignados.</p>";
 }
 
-function renderSelectedUserProfile() {
+async function renderSelectedUserProfile() {
   const container = $("selectedUserProfile");
   const userEmail = getSelectedUserEmail();
+  const userId = getSelectedUserId();
 
   if (!container || !userEmail) return;
 
-  const profile = JSON.parse(localStorage.getItem(`profile_${userEmail}`));
-  const questionnaire = JSON.parse(localStorage.getItem(`questionnaire_${userEmail}`));
-  const profilePhoto = localStorage.getItem(`profilePhoto_${userEmail}`);
+  if (!window.TrainerSupabase?.isConfigured() || !userId) {
+    container.innerHTML = "<p>No se pudo cargar el perfil del usuario.</p>";
+    return;
+  }
+
+  container.innerHTML = "<p>Cargando perfil...</p>";
+  const [profileResult, assessmentResult] = await Promise.all([
+    window.TrainerSupabase.profiles.getProfile(userId),
+    window.TrainerSupabase.questionnaires.getAssessment(userId)
+  ]);
+
+  if (getSelectedUserId() !== userId) return;
+  if (profileResult.error || !profileResult.data) {
+    console.error("[Perfil del cliente] No se pudo cargar el perfil desde Supabase:", profileResult.error);
+    container.innerHTML = "<p>No se pudo cargar el perfil del usuario. Inténtalo más tarde.</p>";
+    return;
+  }
+
+  const supabaseProfile = profileResult.data;
+  const assessmentError = assessmentResult.error || null;
+  const supabaseAssessment = assessmentError ? null : assessmentResult.data;
+  if (assessmentError) {
+    console.error("[Perfil del cliente] No se pudo cargar la evaluación desde Supabase:", assessmentError);
+  }
+
+  let profilePhoto = "";
+  let avatarError = null;
+  if (supabaseProfile.avatar_path) {
+    const avatarResult = await window.TrainerSupabase.storage.getAvatarUrl(supabaseProfile.avatar_path);
+    if (getSelectedUserId() !== userId) return;
+    avatarError = avatarResult.error || null;
+    profilePhoto = sanitizeMediaURL(avatarResult.data?.signedUrl);
+    if (avatarError) {
+      console.error("[Perfil del cliente] No se pudo obtener la URL firmada del avatar:", avatarError);
+    }
+  }
+
+  const profile = {
+    name: supabaseProfile.full_name,
+    age: supabaseProfile.age,
+    weight: supabaseProfile.weight,
+    height: supabaseProfile.height,
+    goal: supabaseProfile.goal,
+    cooperDistance: supabaseProfile.cooper_distance_km,
+    vamSpeed: supabaseProfile.vam_kmh
+  };
+  const questionnaire = supabaseAssessment ? {
+    goal: supabaseAssessment.goal,
+    previousTraining: supabaseAssessment.previous_training,
+    trainingDays: supabaseAssessment.training_days,
+    sessionDuration: supabaseAssessment.session_duration,
+    gymExperience: supabaseAssessment.gym_experience,
+    physicalActivity: supabaseAssessment.physical_activity,
+    hasInjury: supabaseAssessment.has_injury,
+    injuryDescription: supabaseAssessment.injury_description,
+    completed: supabaseAssessment.completed,
+    completedAt: supabaseAssessment.completed_at
+  } : null;
+
+  localStorage.setItem(`profile_${userEmail}`, JSON.stringify(profile));
+  if (!assessmentError) {
+    if (questionnaire) localStorage.setItem(`questionnaire_${userEmail}`, JSON.stringify(questionnaire));
+    else localStorage.removeItem(`questionnaire_${userEmail}`);
+  }
+
   const selectedUser = getPanelUsers()[userEmail] || {};
   const assessmentValue = (property, fallback = "No contestado") =>
-    profile?.[property] || questionnaire?.[property] || fallback;
+    assessmentError ? "No se pudo cargar" : questionnaire?.[property] || profile?.[property] || fallback;
   const hasInjury = profile?.hasInjury ?? questionnaire?.hasInjury;
   const injuryLabel = hasInjury === true ? "Sí" : hasInjury === false ? "No" : "No contestado";
   const personalDetails = [
@@ -2570,9 +2736,10 @@ function renderSelectedUserProfile() {
 
         <div class="admin-profile-avatar-wrap">
           ${profilePhoto
-            ? `<img src="${profilePhoto}" class="admin-profile-photo" alt="Foto de ${escapeHTML(profile?.name || selectedUser.name || userEmail)}">`
+            ? `<img src="${escapeHTML(profilePhoto)}" class="admin-profile-photo" alt="Foto de ${escapeHTML(profile?.name || selectedUser.name || userEmail)}">`
             : `<div class="admin-profile-photo admin-profile-photo-placeholder" role="img" aria-label="Sin foto de perfil">👤</div>`
           }
+          ${avatarError ? "<p>No se pudo cargar la foto.</p>" : ""}
         </div>
 
         <div class="admin-personal-details">
@@ -2599,7 +2766,7 @@ function renderSelectedUserProfile() {
             <h4 id="adminAssessmentTitle">Evaluación Física Inicial</h4>
           </div>
           <span class="admin-assessment-status ${questionnaire?.completed ? "is-complete" : "is-pending"}">
-            ${questionnaire?.completed ? "Completada" : "Pendiente"}
+            ${assessmentError ? "Error al cargar" : questionnaire?.completed ? "Completada" : "Pendiente"}
           </span>
         </header>
 
@@ -2626,8 +2793,8 @@ function renderSelectedUserProfile() {
         </div>
 
         <footer class="admin-assessment-footer">
-          <span>Estado: <strong>${questionnaire?.completed ? "Completado y bloqueado" : "Pendiente"}</strong></span>
-          <span>Fecha: <strong>${escapeHTML(questionnaire?.completedAt || "Sin fecha")}</strong></span>
+          <span>Estado: <strong>${assessmentError ? "No disponible temporalmente" : questionnaire?.completed ? "Completado y bloqueado" : "Pendiente"}</strong></span>
+          <span>Fecha: <strong>${escapeHTML(assessmentError ? "No disponible" : questionnaire?.completedAt || "Sin fecha")}</strong></span>
         </footer>
       </section>
     </div>
@@ -2802,7 +2969,7 @@ async function renderSupabaseUserExercises(assignedVideos, assignedImages) {
       ${selectedExercises.map(item => {
         const exercise = Array.isArray(item.exercises) ? item.exercises[0] : item.exercises;
         const title = exercise?.title || "Ejercicio";
-        const mediaUrl = String(exercise?.media_url || "").trim();
+        const mediaUrl = sanitizeMediaURL(exercise?.media_url);
         const isCompleted = completedIds.has(item.id);
         const media = mediaUrl && exercise?.media_type === "video"
           ? `<video controls preload="metadata" src="${escapeHTML(mediaUrl)}" data-user-routine-media></video>`
@@ -2874,7 +3041,7 @@ async function renderUserExercises() {
   const assignedExercises = userRoutine[day] || [];
 
   if (!assignedExercises.length) {
-    assignedVideos.innerHTML = `<p>No tienes ejercicios asignados para ${day}.</p>`;
+    assignedVideos.innerHTML = `<p>No tienes ejercicios asignados para ${escapeHTML(day)}.</p>`;
     assignedImages.innerHTML = "";
     updateProgressStats();
     return;
@@ -2882,7 +3049,7 @@ async function renderUserExercises() {
 
   assignedVideos.innerHTML = `
     <div class="routine-day">
-      <h3>${week} - ${day}</h3>
+      <h3>${escapeHTML(week)} - ${escapeHTML(day)}</h3>
 
       ${assignedExercises.map(item => {
         const exerciseId = item.exerciseId;
@@ -2896,17 +3063,17 @@ async function renderUserExercises() {
         return `
         <article class="exercise-card ${isCompleted ? "completed-card" : ""}">
           <div class="exercise-media">
-            ${
-              exercise.type === "video"
-                ? `<video controls><source src="${exercise.url}"></video>`
-                : `<img src="${exercise.url}" alt="${exercise.title}">`
-            }
+            ${sanitizeMediaURL(exercise.url)
+              ? exercise.type === "video"
+                ? `<video controls><source src="${escapeHTML(sanitizeMediaURL(exercise.url))}"></video>`
+                : `<img src="${escapeHTML(sanitizeMediaURL(exercise.url))}" alt="${escapeHTML(exercise.title || "Ejercicio")}">`
+              : '<p class="assigned-media-fallback">Vista previa no disponible</p>'}
           </div>
 
           <div class="exercise-info">
             <div class="exercise-top">
               <span class="exercise-category">
-                ${exercise.category || "Sin categoría"}
+                ${escapeHTML(exercise.category || "Sin categoría")}
               </span>
 
               <span class="exercise-status">
@@ -2914,12 +3081,12 @@ async function renderUserExercises() {
               </span>
             </div>
 
-            <h3>${exercise.title}</h3>
+            <h3>${escapeHTML(exercise.title || "Ejercicio")}</h3>
 
             <div class="exercise-metrics">
-              <span>💪 ${item.sets || "--"} series</span>
-              <span>🔁 ${item.reps || "--"} reps</span>
-              <span>⏱ ${item.rest || "--"}s</span>
+              <span>💪 ${escapeHTML(item.sets || "--")} series</span>
+              <span>🔁 ${escapeHTML(item.reps || "--")} reps</span>
+              <span>⏱ ${escapeHTML(item.rest || "--")}s</span>
             </div>
 
             <button
@@ -2951,7 +3118,51 @@ function updateSelectedUserLabel() {
   }
 }
 
-function renderDashboard() {
+async function getDashboardSupabaseData() {
+  const [routinesResult, completionsResult] = await Promise.all([
+    window.TrainerSupabase.routines.listOwnActiveRoutines(),
+    window.TrainerSupabase.progress.listOwnCompletions()
+  ]);
+
+  if (routinesResult.error || completionsResult.error) {
+    const error = routinesResult.error || completionsResult.error;
+    console.error("[Dashboard] No se pudieron cargar rutina y progreso desde Supabase:", error);
+    return { status: "ERROR", error };
+  }
+
+  const routines = routinesResult.data?.routines || [];
+  const exercises = Array.from(new Map(
+    routines
+      .flatMap(routine => routine.routine_exercises || [])
+      .filter(item => {
+        const exercise = Array.isArray(item.exercises) ? item.exercises[0] : item.exercises;
+        return item?.id && exercise && exercise.active !== false;
+      })
+      .map(item => [item.id, item])
+  ).values());
+
+  return {
+    status: exercises.length
+      ? "READY"
+      : routines.length
+        ? "EMPTY_ROUTINE"
+        : "NOT_FOUND",
+    exercises,
+    completions: completionsResult.data || []
+  };
+}
+
+function renderDashboardLoadError() {
+  if ($("dashboardProgressPercent")) $("dashboardProgressPercent").textContent = "--";
+  if ($("dashboardProgressText")) {
+    $("dashboardProgressText").textContent = "No se pudo cargar el progreso";
+  }
+  if ($("todayExercisesPreview")) {
+    $("todayExercisesPreview").innerHTML = "<p>No se pudo cargar tu rutina. Inténtalo más tarde.</p>";
+  }
+}
+
+async function renderDashboard() {
   const currentUser = localStorage.getItem("currentUser");
 
   if (!currentUser) return;
@@ -2964,35 +3175,28 @@ function renderDashboard() {
       user?.name || "Usuario";
   }
 
-  const assignments = getUserAssignments();
-  const completed = getCompletedExercises();
+  if (!window.TrainerSupabase?.isConfigured()) {
+    renderDashboardLoadError();
+    return;
+  }
 
-  const weeks = ["Semana 1", "Semana 2", "Semana 3", "Semana 4"];
-const days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+  const dashboardData = await getDashboardSupabaseData();
+  if (dashboardData.status === "ERROR") {
+    renderDashboardLoadError();
+    return;
+  }
 
-const userRoutine = assignments[currentUser] || {};
-
-let totalExercises = 0;
-let completedCount = 0;
-
-weeks.forEach(week => {
-  days.forEach(day => {
-    const exercises = userRoutine[day] || [];
-
-    totalExercises += exercises.length;
-
-    exercises.forEach(item => {
-      const key = `${currentUser}_${week}_${day}_${item.exerciseId}`;
-
-      if (completed[key]) {
-        completedCount++;
-      }
-    });
-  });
-});
-
-const percent =
-  totalExercises > 0
+  const { exercises, completions } = dashboardData;
+  const exerciseKeys = new Set(
+    exercises.map(item => `${item.id}:${Number(item.week_number)}`)
+  );
+  const completedKeys = new Set(
+    completions.map(item => `${item.routine_exercise_id}:${Number(item.week_number)}`)
+  );
+  const totalExercises = exerciseKeys.size;
+  const completedCount = Array.from(exerciseKeys)
+    .filter(key => completedKeys.has(key)).length;
+  const percent = totalExercises > 0
     ? Math.round((completedCount / totalExercises) * 100)
     : 0;
 
@@ -3003,44 +3207,46 @@ const percent =
 
   if ($("dashboardProgressText")) {
     $("dashboardProgressText").textContent =
-      `${completedCount} de ${totalExercises} ejercicios completados`;
+      totalExercises > 0
+        ? `${completedCount} de ${totalExercises} ejercicios completados`
+        : "No tienes una rutina asignada";
   }
 
   const week = selectedRoutineWeek || "Semana 1";
+  const weekNumber = Number.parseInt(String(week).match(/\d+/)?.[0] || "1", 10);
+  const days = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
   const todayIndex = new Date().getDay();
   const day = days[todayIndex === 0 ? 6 : todayIndex - 1];
-  const exercises = Array.isArray(userRoutine[day]) ? userRoutine[day] : [];
+  const todayExercises = exercises
+    .filter(item => Number(item.week_number) === weekNumber && item.day_name === day)
+    .sort((a, b) => Number(a.display_order || 0) - Number(b.display_order || 0));
 
   if ($("todayRoutineLabel")) {
     $("todayRoutineLabel").textContent =
       `${week} · ${day}`;
   }
 
-  const library = getExerciseLibrary();
-
   if ($("todayExercisesPreview")) {
-    $("todayExercisesPreview").innerHTML =
-      exercises.slice(0, 3).map(item => {
-
-        const exercise =
-          library.find(ex => Number(ex.id) === Number(item.exerciseId));
-
-        if (!exercise) return "";
-
+    $("todayExercisesPreview").innerHTML = todayExercises.length
+      ? todayExercises.slice(0, 3).map(item => {
+        const exercise = Array.isArray(item.exercises) ? item.exercises[0] : item.exercises;
         return `
           <div class="today-item">
-            <img src="${exercise.url}" alt="${exercise.title}">
+            ${sanitizeMediaURL(exercise.media_url)
+              ? `<img src="${escapeHTML(sanitizeMediaURL(exercise.media_url))}" alt="${escapeHTML(exercise.title || "Ejercicio")}">`
+              : ""}
 
             <div>
-              <strong>${exercise.title}</strong>
+              <strong>${escapeHTML(exercise.title || "Ejercicio")}</strong>
               <p>
                 ${item.sets} series ·
-                ${item.reps} reps
+                ${item.repetitions} reps
               </p>
             </div>
           </div>
         `;
-      }).join("");
+      }).join("")
+      : `<p>No tienes ejercicios asignados para ${escapeHTML(day)}.</p>`;
   }
 }
 
@@ -3142,6 +3348,34 @@ function escapeHTML(value) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;",
     "'": "&#39;", '"': "&quot;"
   })[character]);
+}
+
+function sanitizeMediaURL(value, options = {}) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) return "";
+
+  if (options.allowDataImage && /^data:image\/(?:png|jpeg|webp|gif);base64,[a-z0-9+/=\s]+$/i.test(rawValue)) {
+    return rawValue;
+  }
+  if (options.allowBlob && rawValue.startsWith("blob:")) {
+    try {
+      const blobUrl = new URL(rawValue);
+      return blobUrl.protocol === "blob:" ? blobUrl.href : "";
+    } catch {
+      return "";
+    }
+  }
+
+  try {
+    const url = new URL(rawValue, window.location.origin);
+    if (url.protocol === "https:") return url.href;
+    const localHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
+    const applicationHost = String(window.location.hostname || "").toLowerCase();
+    if (url.protocol === "http:" && localHosts.has(applicationHost)) return url.href;
+    return "";
+  } catch {
+    return "";
+  }
 }
 
 function filterSubscriptions(filter = "all") {
@@ -3344,7 +3578,7 @@ function contactTherapy() {
   );
 
   window.open(
-    "https://wa.me/525559970953?text=" + message,
+    "https://wa.me/525624774731?text=" + message,
     "_blank"
   );
 }
