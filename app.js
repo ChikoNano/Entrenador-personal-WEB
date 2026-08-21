@@ -10,7 +10,7 @@ let passwordSetupMode = "invite";
 let activeExerciseFilter = null;
 let selectedRoutineWeek = "Semana 1";
 let selectedRoutineDay = "Lunes";
-const TRAINER_WHATSAPP_NUMBER = "REEMPLAZAR_NUMERO_WHATSAPP";
+const TRAINER_WHATSAPP_NUMBER = "525624774731";
 const initialSupabaseAuthCallback = (() => {
   const query = new URLSearchParams(window.location.search);
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -3578,7 +3578,7 @@ function contactTherapy() {
   );
 
   window.open(
-    "https://wa.me/525624774731?text=" + message,
+    `https://wa.me/${TRAINER_WHATSAPP_NUMBER}?text=${message}`,
     "_blank"
   );
 }
