@@ -32,6 +32,20 @@ create table if not exists public.initial_assessments (
   constraint injury_description_consistency check (has_injury is distinct from false or injury_description is null)
 );
 
+create table if not exists public.legal_consents (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  privacy_notice_accepted boolean not null,
+  terms_accepted boolean not null,
+  sensitive_data_consent boolean not null,
+  privacy_notice_version text not null,
+  terms_version text not null,
+  legal_accepted_at timestamptz not null default now(),
+  primary key (user_id, privacy_notice_version, terms_version),
+  constraint legal_consents_all_accepted check (
+    privacy_notice_accepted and terms_accepted and sensitive_data_consent
+  )
+);
+
 create table if not exists public.exercises (
   id uuid primary key default gen_random_uuid(), legacy_id bigint unique,
   category text not null, muscle_group text not null, title text not null,
@@ -191,6 +205,7 @@ create trigger on_auth_user_created after insert on auth.users for each row exec
 
 alter table public.profiles enable row level security;
 alter table public.initial_assessments enable row level security;
+alter table public.legal_consents enable row level security;
 alter table public.exercises enable row level security;
 alter table public.routines enable row level security;
 alter table public.routine_exercises enable row level security;
@@ -204,6 +219,17 @@ drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles for update to authenticated using (id=auth.uid() or public.can_manage_user(id)) with check (id=auth.uid() or public.can_manage_user(id));
 drop policy if exists assessments_all on public.initial_assessments;
 create policy assessments_all on public.initial_assessments for all to authenticated using (user_id=auth.uid() or public.can_manage_user(user_id)) with check (user_id=auth.uid() or public.can_manage_user(user_id));
+drop policy if exists legal_consents_read on public.legal_consents;
+create policy legal_consents_read on public.legal_consents for select to authenticated
+  using (user_id=auth.uid() or public.can_manage_user(user_id));
+drop policy if exists legal_consents_user_insert on public.legal_consents;
+create policy legal_consents_user_insert on public.legal_consents for insert to authenticated
+  with check (
+    user_id=auth.uid()
+    and privacy_notice_accepted
+    and terms_accepted
+    and sensitive_data_consent
+  );
 drop policy if exists exercises_read on public.exercises;
 create policy exercises_read on public.exercises for select to authenticated using (active or public.is_staff());
 drop policy if exists exercises_staff_write on public.exercises;

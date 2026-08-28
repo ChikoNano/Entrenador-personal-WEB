@@ -5,13 +5,14 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
-const statusValues = { COMPLETED: "COMPLETED", NOT_FOUND: "NOT_FOUND", ERROR: "ERROR" };
+const statusValues = { COMPLETED: "COMPLETED", LEGAL_REQUIRED: "LEGAL_REQUIRED", NOT_FOUND: "NOT_FOUND", ERROR: "ERROR" };
+const currentVersions = { privacyNotice: "1.0", terms: "1.0" };
 
 const stateStart = source.indexOf("async function getSupabaseAssessmentState");
 const stateEnd = source.indexOf("function cacheSupabaseAssessment", stateStart);
 const stateSource = source.slice(stateStart, stateEnd);
 
-function stateContext(result) {
+function stateContext(result, consentResult = { data: { legal_accepted_at: "2026-08-28T12:00:00Z" }, error: null }) {
   const calls = [];
   const context = {
     ASSESSMENT_STATUS: statusValues,
@@ -23,9 +24,11 @@ function stateContext(result) {
             calls.push(userId);
             return result;
           }
-        }
+        },
+        legal: { getCurrentConsent: async () => consentResult }
       }
-    }
+    },
+    LEGAL_DOCUMENT_VERSIONS: currentVersions
   };
   vm.createContext(context);
   vm.runInContext(stateSource, context);
@@ -53,6 +56,13 @@ test("representa fallo de consulta como ERROR", async () => {
   const result = await state.context.getSupabaseAssessmentState("user-3");
   assert.equal(result.status, "ERROR");
   assert.equal(result.error.message, "Failed to fetch");
+});
+
+test("evaluación previa sin versión legal vigente requiere consentimiento", async () => {
+  const assessment = { completed: true, goal: "Fuerza" };
+  const state = stateContext({ data: assessment, error: null }, { data: null, error: null });
+  const result = await state.context.getSupabaseAssessmentState("user-4");
+  assert.equal(result.status, "LEGAL_REQUIRED");
 });
 
 function startSessionContext(assessmentState) {
@@ -91,6 +101,8 @@ function startSessionContext(assessmentState) {
     renderAdminData() {},
     syncRoutineNavigationUI() {},
     showSlide() {},
+    showLegalConsentScreen: completed => pages.push(completed ? "legalCompleted" : "legalNew"),
+    document: { querySelector: () => null },
     window: { TrainerSupabase: { isConfigured: () => true, mode: "supabase" } }
   };
   vm.createContext(context);
@@ -113,6 +125,12 @@ test("usuario realmente sin evaluación ve el cuestionario", async () => {
   assert.equal(await state.context.startSession("user@example.com", user, "user-1"), true);
   assert.equal(state.pages.at(-1), "questionnairePage");
   assert.equal(state.getCached(), 0);
+});
+
+test("usuario con evaluación histórica ve únicamente el consentimiento pendiente", async () => {
+  const state = startSessionContext({ status: "LEGAL_REQUIRED", assessment: { completed: true } });
+  assert.equal(await state.context.startSession("user@example.com", user, "user-1"), true);
+  assert.deepEqual(state.pages.slice(-2), ["questionnairePage", "legalCompleted"]);
 });
 
 test("error temporal bloquea sin mostrar cuestionario", async () => {

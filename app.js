@@ -45,8 +45,13 @@ const SUBSCRIPTION_CHECK_ERROR_MESSAGE =
   "No pudimos verificar tu suscripción temporalmente. Inténtalo más tarde.";
 const ASSESSMENT_STATUS = Object.freeze({
   COMPLETED: "COMPLETED",
+  LEGAL_REQUIRED: "LEGAL_REQUIRED",
   NOT_FOUND: "NOT_FOUND",
   ERROR: "ERROR"
+});
+const LEGAL_DOCUMENT_VERSIONS = Object.freeze({
+  privacyNotice: "1.0",
+  terms: "1.0"
 });
 const ASSESSMENT_CHECK_ERROR_MESSAGE =
   "No pudimos cargar tu evaluación temporalmente. Inténtalo más tarde.";
@@ -715,6 +720,54 @@ function showAssessmentConfirmation() {
   $("assessmentConfirmation")?.classList.remove("hidden");
 }
 
+function showLegalConsentScreen(assessmentAlreadyCompleted = false) {
+  document.querySelector(".assessment-header")?.classList.add("hidden");
+  document.querySelectorAll(".assessment-slide").forEach(slide => slide.classList.add("hidden"));
+  document.querySelector("#questionnairePage > .btn-row")?.classList.add("hidden");
+  $("assessmentConfirmation")?.classList.add("hidden");
+  $("legalConsentScreen")?.classList.remove("hidden");
+  $("legalConsentScreen").dataset.assessmentCompleted = String(assessmentAlreadyCompleted);
+  ["privacyNoticeAccepted", "termsAccepted", "sensitiveDataConsent"].forEach(id => {
+    if ($(id)) $(id).checked = false;
+  });
+  $("legalConsentError")?.classList.add("hidden");
+  updateLegalConsentButtonState();
+}
+
+function updateLegalConsentButtonState() {
+  const accepted = ["privacyNoticeAccepted", "termsAccepted", "sensitiveDataConsent"]
+    .every(id => $(id)?.checked === true);
+  if ($("btnAcceptLegal")) $("btnAcceptLegal").disabled = !accepted || isAssessmentSubmitting;
+  return accepted;
+}
+
+async function openLegalDocument(documentName) {
+  const modal = $("legalDocumentModal");
+  const content = $("legalDocumentContent");
+  const paths = {
+    privacyNotice: "legal/aviso-privacidad-v1.0.txt",
+    terms: "legal/terminos-condiciones-v1.0.txt"
+  };
+  if (!modal || !content || !paths[documentName]) return;
+  content.textContent = "Cargando documento...";
+  modal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+  $("closeLegalDocumentModal")?.focus();
+  try {
+    const response = await fetch(paths[documentName], { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    content.textContent = await response.text();
+  } catch (error) {
+    console.error("No se pudo abrir el documento legal:", error);
+    content.textContent = "No se pudo cargar el documento. Cierra esta ventana e inténtalo nuevamente.";
+  }
+}
+
+function closeLegalDocument() {
+  $("legalDocumentModal")?.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+}
+
 function saveAssessmentResponses(currentUser) {
   const users = getUsers();
   const user = users[currentUser] || {};
@@ -815,43 +868,72 @@ async function nextSlide() {
     return;
   }
 
-  if (isAssessmentSubmitting) return;
+  showLegalConsentScreen(false);
+}
 
-  isAssessmentSubmitting = true;
-  if ($("nextBtn")) {
-    $("nextBtn").disabled = true;
-    $("nextBtn").textContent = "Guardando...";
-  }
-  $("assessmentSaveError")?.classList.add("hidden");
-
-  try {
-    const savedAssessment = saveAssessmentResponses(currentUser);
-    if (window.TrainerSupabase?.isConfigured()) {
-      const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
-      if (profileResult.error) throw new Error(profileResult.error.message);
-      const result = await window.TrainerSupabase.questionnaires.saveAssessment(profileResult.data.id, savedAssessment.questionnaire);
-      if (result.error) throw new Error(result.error.message);
-    }
-  } catch (error) {
-    console.error("No se pudo guardar la evaluación:", error);
-    if ($("assessmentSaveError")) {
-      $("assessmentSaveError").textContent =
-        "No se pudo guardar la evaluación. Revisa el espacio disponible e inténtalo nuevamente.";
-      $("assessmentSaveError").classList.remove("hidden");
-    }
-    if ($("nextBtn")) {
-      $("nextBtn").disabled = false;
-      $("nextBtn").textContent = "Enviar";
-    }
-    isAssessmentSubmitting = false;
+async function acceptLegalConsentAndFinish() {
+  if (!updateLegalConsentButtonState() || isAssessmentSubmitting) return;
+  const errorElement = $("legalConsentError");
+  if (!window.TrainerSupabase?.isConfigured()) {
+    errorElement.textContent = "No se pudo registrar tu aceptación. Inténtalo nuevamente.";
+    errorElement.classList.remove("hidden");
     return;
   }
 
-  loadProfile();
-  renderAdminData();
-  showAssessmentConfirmation();
-  await startAssessmentProcessing();
-  goToPage("profilePage");
+  isAssessmentSubmitting = true;
+  const button = $("btnAcceptLegal");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Guardando...";
+  }
+  errorElement?.classList.add("hidden");
+
+  try {
+    const currentUser = localStorage.getItem("currentUser");
+    const profileResult = await window.TrainerSupabase.auth.getAuthenticatedProfile();
+    if (profileResult.error || !profileResult.data?.id) {
+      throw new Error(profileResult.error?.message || "No se encontró una sesión válida");
+    }
+    const consentResult = await window.TrainerSupabase.legal.acceptCurrentConsent(
+      profileResult.data.id,
+      LEGAL_DOCUMENT_VERSIONS
+    );
+    if (consentResult.error) throw new Error(consentResult.error.message);
+
+    const assessmentAlreadyCompleted = $("legalConsentScreen")?.dataset.assessmentCompleted === "true";
+    if (!assessmentAlreadyCompleted) {
+      const assessment = { ...getAssessmentData(), completed: true, completedAt: new Date().toISOString() };
+      const assessmentResult = await window.TrainerSupabase.questionnaires.saveAssessment(
+        profileResult.data.id,
+        assessment
+      );
+      if (assessmentResult.error) throw new Error(assessmentResult.error.message);
+      try {
+        if (currentUser) saveAssessmentResponses(currentUser);
+      } catch (cacheError) {
+        console.warn("La evaluación se guardó en Supabase, pero no pudo actualizarse la caché local:", cacheError);
+      }
+    }
+
+    loadProfile();
+    renderAdminData();
+    $("legalConsentScreen")?.classList.add("hidden");
+    showAssessmentConfirmation();
+    await startAssessmentProcessing();
+    goToPage("dashboardPage");
+    await renderDashboard();
+  } catch (error) {
+    console.error("No se pudo finalizar la evaluación y el consentimiento:", error);
+    if (errorElement) {
+      errorElement.textContent =
+        "No se pudo registrar tu aceptación. No se completó el cuestionario. Inténtalo nuevamente.";
+      errorElement.classList.remove("hidden");
+    }
+  } finally {
+    isAssessmentSubmitting = false;
+    if (button) button.textContent = "ACEPTAR Y FINALIZAR";
+    updateLegalConsentButtonState();
+  }
 }
 
 function prevSlide() {
@@ -909,15 +991,26 @@ async function login() {
 }
 
 async function getSupabaseAssessmentState(userId) {
-  const result = await window.TrainerSupabase.questionnaires.getAssessment(userId);
-  if (result.error) {
-    console.error("No se pudo consultar la evaluación inicial:", result.error);
-    return { status: ASSESSMENT_STATUS.ERROR, error: result.error };
+  const [assessmentResult, consentResult] = await Promise.all([
+    window.TrainerSupabase.questionnaires.getAssessment(userId),
+    window.TrainerSupabase.legal.getCurrentConsent(userId, LEGAL_DOCUMENT_VERSIONS)
+  ]);
+  if (assessmentResult.error || consentResult.error) {
+    const error = assessmentResult.error || consentResult.error;
+    console.error("No se pudo consultar la evaluación inicial y su consentimiento:", error);
+    return { status: ASSESSMENT_STATUS.ERROR, error };
   }
-  if (!result.data || result.data.completed !== true) {
-    return { status: ASSESSMENT_STATUS.NOT_FOUND, assessment: result.data || null };
+  if (!assessmentResult.data || assessmentResult.data.completed !== true) {
+    return { status: ASSESSMENT_STATUS.NOT_FOUND, assessment: assessmentResult.data || null };
   }
-  return { status: ASSESSMENT_STATUS.COMPLETED, assessment: result.data };
+  if (!consentResult.data) {
+    return { status: ASSESSMENT_STATUS.LEGAL_REQUIRED, assessment: assessmentResult.data };
+  }
+  return {
+    status: ASSESSMENT_STATUS.COMPLETED,
+    assessment: assessmentResult.data,
+    consent: consentResult.data
+  };
 }
 
 function cacheSupabaseAssessment(email, assessment) {
@@ -995,9 +1088,16 @@ async function startSession(email, user, authenticatedUserId = "") {
 
   if (assessmentState?.status === ASSESSMENT_STATUS.COMPLETED) {
     goToPage("profilePage");
+  } else if (assessmentState?.status === ASSESSMENT_STATUS.LEGAL_REQUIRED) {
+    goToPage("questionnairePage");
+    showLegalConsentScreen(true);
   } else {
     currentSlide = 0;
     goToPage("questionnairePage");
+    document.querySelector(".assessment-header")?.classList.remove("hidden");
+    document.querySelector("#questionnairePage > .btn-row")?.classList.remove("hidden");
+    $("legalConsentScreen")?.classList.add("hidden");
+    $("assessmentConfirmation")?.classList.add("hidden");
     showSlide(currentSlide);
   }
   return true;
@@ -3749,6 +3849,15 @@ if ($("btnGoProfile")) {
   if ($("prevBtn")) {
     $("prevBtn").addEventListener("click", prevSlide);
   }
+
+  ["privacyNoticeAccepted", "termsAccepted", "sensitiveDataConsent"].forEach(id => {
+    $(id)?.addEventListener("change", updateLegalConsentButtonState);
+  });
+  $("btnReadPrivacyNotice")?.addEventListener("click", () => openLegalDocument("privacyNotice"));
+  $("btnReadTerms")?.addEventListener("click", () => openLegalDocument("terms"));
+  $("btnAcceptLegal")?.addEventListener("click", acceptLegalConsentAndFinish);
+  $("closeLegalDocumentModal")?.addEventListener("click", closeLegalDocument);
+  document.querySelector("[data-close-legal-modal]")?.addEventListener("click", closeLegalDocument);
 
   document.querySelectorAll('input[name="hasInjury"]').forEach(input => {
     input.addEventListener("change", toggleInjuryDescription);

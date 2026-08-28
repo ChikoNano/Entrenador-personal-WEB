@@ -159,6 +159,26 @@
     </div>
     <p class="assessment-save-error hidden" id="assessmentSaveError" role="alert"></p>
 
+    <section class="legal-consent-screen hidden" id="legalConsentScreen" aria-labelledby="legalConsentTitle">
+      <p class="assessment-eyebrow">FIT51</p>
+      <h2 id="legalConsentTitle">PRIVACIDAD, TÉRMINOS Y CONSENTIMIENTO</h2>
+      <p>Antes de finalizar, revisa y acepta las condiciones de uso y privacidad de FIT51.</p>
+
+      <div class="legal-document-actions">
+        <button class="btn btn-secondary" id="btnReadPrivacyNotice" type="button">Leer Aviso de Privacidad Integral</button>
+        <button class="btn btn-secondary" id="btnReadTerms" type="button">Leer Términos y Condiciones</button>
+      </div>
+
+      <div class="legal-consent-options">
+        <label><input id="privacyNoticeAccepted" type="checkbox"> <span>He leído y acepto el Aviso de Privacidad Integral de FIT51.</span></label>
+        <label><input id="termsAccepted" type="checkbox"> <span>He leído y acepto los Términos y Condiciones de Uso de FIT51.</span></label>
+        <label><input id="sensitiveDataConsent" type="checkbox"> <span>Otorgo mi consentimiento expreso para el tratamiento de los datos personales sensibles que proporcione voluntariamente a FIT51, conforme a las finalidades descritas en el Aviso de Privacidad Integral.</span></label>
+      </div>
+
+      <p class="assessment-save-error hidden" id="legalConsentError" role="alert" aria-live="polite"></p>
+      <button class="btn" id="btnAcceptLegal" type="button" disabled>ACEPTAR Y FINALIZAR</button>
+    </section>
+
     <section class="assessment-confirmation hidden" id="assessmentConfirmation" aria-live="polite">
       <div class="assessment-confirmation-icon" aria-hidden="true">✓</div>
       <h2>¡Evaluación completada!</h2>
@@ -790,12 +810,24 @@
     </div>
   </div>
 
+  <div id="legalDocumentModal" class="legal-document-modal hidden" role="dialog" aria-modal="true" aria-labelledby="legalDocumentModalTitle">
+    <div class="legal-document-backdrop" data-close-legal-modal></div>
+    <div class="legal-document-panel" role="document">
+      <div class="legal-document-header">
+        <h2 id="legalDocumentModalTitle">Documento legal FIT51</h2>
+        <button id="closeLegalDocumentModal" class="legal-document-close" type="button" aria-label="Cerrar documento">×</button>
+      </div>
+      <pre id="legalDocumentContent" class="legal-document-content"></pre>
+    </div>
+  </div>
+
   <!-- JS PRINCIPAL -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="js/supabase-config.js?v=20260728"></script>
   <script src="js/supabase-auth.js?v=20260728"></script>
   <script src="js/supabase-profiles.js?v=20260728"></script>
   <script src="js/supabase-questionnaires.js?v=20260728"></script>
+  <script src="js/supabase-legal.js?v=20260828"></script>
   <script src="js/supabase-exercises.js?v=20260728"></script>
   <script src="js/supabase-routines.js?v=20260728"></script>
   <script src="js/supabase-subscriptions.js?v=20260728"></script>
