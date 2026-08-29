@@ -32,12 +32,19 @@ test("el botón legal exige exactamente las tres casillas", () => {
   vm.createContext(context);
   vm.runInContext(app.slice(start, end), context);
   assert.equal(context.updateLegalConsentButtonState(), false);
+  assert.equal(elements.btnAcceptLegal.disabled, true);
   elements.privacyNoticeAccepted.checked = true;
+  assert.equal(context.updateLegalConsentButtonState(), false);
+  assert.equal(elements.btnAcceptLegal.disabled, true);
   elements.termsAccepted.checked = true;
   assert.equal(context.updateLegalConsentButtonState(), false);
+  assert.equal(elements.btnAcceptLegal.disabled, true);
   elements.sensitiveDataConsent.checked = true;
   assert.equal(context.updateLegalConsentButtonState(), true);
   assert.equal(elements.btnAcceptLegal.disabled, false);
+  elements.termsAccepted.checked = false;
+  assert.equal(context.updateLegalConsentButtonState(), false);
+  assert.equal(elements.btnAcceptLegal.disabled, true);
 });
 
 test("los documentos internos están completos y conservan el marcador literal", () => {
@@ -133,7 +140,7 @@ test("regresión integrada: siete preguntas conducen al consentimiento sin compl
 });
 
 test("producción invalida el bundle anterior del flujo de cuestionario", () => {
-  assert.match(html, /styles\.css\?v=20260829-legal-mobile-fix/);
+  assert.match(html, /styles\.css\?v=20260829-legal-button-fix/);
   assert.match(html, /app\.js\?v=20260828-legal-consent-hotfix/);
   assert.doesNotMatch(html, /(?:styles\.css|app\.js)\?v=20260731/);
 });
@@ -146,6 +153,14 @@ test("los checkbox legales no heredan el ancho completo de los inputs globales",
   assert.match(css, /\.legal-consent-options label > span\s*\{[\s\S]*?min-width:\s*0/);
   assert.match(css, /\.legal-consent-options label > span\s*\{[\s\S]*?white-space:\s*normal/);
   assert.match(css, /\.legal-consent-options label > span\s*\{[\s\S]*?word-break:\s*normal/);
+});
+
+test("el botón legal disabled tiene apariencia neutral y no conserva interacción activa", () => {
+  assert.match(css, /#btnAcceptLegal:disabled\s*\{[\s\S]*?background:\s*#d7dbe1/);
+  assert.match(css, /#btnAcceptLegal:disabled\s*\{[\s\S]*?cursor:\s*not-allowed/);
+  assert.match(css, /#btnAcceptLegal:disabled\s*\{[\s\S]*?box-shadow:\s*none/);
+  assert.match(css, /#btnAcceptLegal:disabled:hover,[\s\S]*?#btnAcceptLegal:disabled:active/);
+  assert.match(css, /#btnAcceptLegal:disabled::after\s*\{[\s\S]*?display:\s*none/);
 });
 
 test("la evidencia legal no depende de localStorage ni usa timestamp cliente", () => {

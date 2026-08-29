@@ -967,6 +967,33 @@ details,
   word-break: normal;
 }
 
+#btnAcceptLegal:disabled {
+  border-color: var(--line-strong);
+  background: #d7dbe1;
+  color: #707782 !important;
+  box-shadow: none;
+  cursor: not-allowed;
+  filter: none;
+  opacity: 1;
+  transform: none;
+}
+
+#btnAcceptLegal:disabled:hover,
+#btnAcceptLegal:disabled:active {
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+#btnAcceptLegal:disabled::after {
+  display: none;
+}
+
+body.dark-mode #btnAcceptLegal:disabled {
+  background: #30353d;
+  color: #9299a4 !important;
+}
+
 .legal-document-modal {
   position: fixed;
   inset: 0;
