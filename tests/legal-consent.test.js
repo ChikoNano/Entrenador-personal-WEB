@@ -133,9 +133,19 @@ test("regresión integrada: siete preguntas conducen al consentimiento sin compl
 });
 
 test("producción invalida el bundle anterior del flujo de cuestionario", () => {
-  assert.match(html, /styles\.css\?v=20260828-legal-consent-hotfix/);
+  assert.match(html, /styles\.css\?v=20260829-legal-mobile-fix/);
   assert.match(html, /app\.js\?v=20260828-legal-consent-hotfix/);
   assert.doesNotMatch(html, /(?:styles\.css|app\.js)\?v=20260731/);
+});
+
+test("los checkbox legales no heredan el ancho completo de los inputs globales", () => {
+  assert.match(css, /\.legal-consent-options input\[type="checkbox"\]\s*\{[\s\S]*?flex:\s*0 0 22px/);
+  assert.match(css, /\.legal-consent-options input\[type="checkbox"\]\s*\{[\s\S]*?width:\s*22px/);
+  assert.match(css, /\.legal-consent-options input\[type="checkbox"\]\s*\{[\s\S]*?min-height:\s*22px/);
+  assert.match(css, /\.legal-consent-options label\s*\{[\s\S]*?width:\s*100%/);
+  assert.match(css, /\.legal-consent-options label > span\s*\{[\s\S]*?min-width:\s*0/);
+  assert.match(css, /\.legal-consent-options label > span\s*\{[\s\S]*?white-space:\s*normal/);
+  assert.match(css, /\.legal-consent-options label > span\s*\{[\s\S]*?word-break:\s*normal/);
 });
 
 test("la evidencia legal no depende de localStorage ni usa timestamp cliente", () => {

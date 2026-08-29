@@ -929,13 +929,42 @@ details,
 .legal-consent-options label {
   display: flex;
   align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
   gap: 12px;
+  margin: 0;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: 15px;
+  background: var(--surface-solid);
+  color: var(--text);
+  font-size: .9rem;
+  letter-spacing: normal;
   line-height: 1.5;
+  cursor: pointer;
 }
 
-.legal-consent-options input {
-  flex: 0 0 auto;
-  margin-top: 4px;
+.legal-consent-options input[type="checkbox"] {
+  flex: 0 0 22px;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  margin: 1px 0 0;
+  padding: 0;
+  border-radius: 4px;
+  box-shadow: none;
+  accent-color: var(--accent);
+}
+
+.legal-consent-options label > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .legal-document-modal {
