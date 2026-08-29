@@ -868,7 +868,7 @@ async function nextSlide() {
     return;
   }
 
-  showLegalConsentScreen(false);
+  return showLegalConsentScreen(false);
 }
 
 async function acceptLegalConsentAndFinish() {

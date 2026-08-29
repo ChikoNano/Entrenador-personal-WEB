@@ -94,6 +94,50 @@ test("el flujo guarda consentimiento antes de completar evaluación y navegar", 
   assert.match(app, /isAssessmentSubmitting = true/);
 });
 
+test("regresión integrada: siete preguntas conducen al consentimiento sin completar ni navegar", async () => {
+  const start = app.indexOf("async function nextSlide");
+  const end = app.indexOf("async function acceptLegalConsentAndFinish", start);
+  const pages = [];
+  let legalScreenCalls = 0;
+  let assessmentWrites = 0;
+  const context = {
+    currentSlide: 0,
+    document: { querySelectorAll: () => Array.from({ length: 7 }, () => ({})) },
+    validateCurrentAssessmentSlide: () => true,
+    showSlide() {},
+    showLegalConsentScreen: completed => {
+      assert.equal(completed, false);
+      legalScreenCalls += 1;
+    },
+    localStorage: { getItem: () => "usuario@fit51.test" },
+    alert() {},
+    saveAssessmentResponses: () => { assessmentWrites += 1; },
+    goToPage: page => pages.push(page),
+    window: {
+      TrainerSupabase: {
+        questionnaires: { saveAssessment: () => { assessmentWrites += 1; } }
+      }
+    }
+  };
+  vm.createContext(context);
+  vm.runInContext(app.slice(start, end), context);
+
+  for (let question = 1; question <= 7; question += 1) {
+    await context.nextSlide();
+  }
+
+  assert.equal(context.currentSlide, 6);
+  assert.equal(legalScreenCalls, 1);
+  assert.equal(assessmentWrites, 0);
+  assert.deepEqual(pages, []);
+});
+
+test("producción invalida el bundle anterior del flujo de cuestionario", () => {
+  assert.match(html, /styles\.css\?v=20260828-legal-consent-hotfix/);
+  assert.match(html, /app\.js\?v=20260828-legal-consent-hotfix/);
+  assert.doesNotMatch(html, /(?:styles\.css|app\.js)\?v=20260731/);
+});
+
 test("la evidencia legal no depende de localStorage ni usa timestamp cliente", () => {
   const service = fs.readFileSync(path.join(root, "js", "supabase-legal.js"), "utf8");
   assert.doesNotMatch(service, /localStorage/);
