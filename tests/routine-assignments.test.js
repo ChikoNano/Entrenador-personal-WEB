@@ -74,25 +74,26 @@ test("agrega un ejercicio una sola vez como cuatro asignaciones semanales", asyn
   assert.ok(rows.every(row => row.day_name === "Lunes"));
 });
 
-function renderAssignmentsForWeek(week) {
+function renderMasterAssignments(exerciseCount = 1) {
   const start = app.indexOf("async function renderSelectedUserAssignments");
   const end = app.indexOf("async function renderSelectedUserProfile", start);
   const container = { innerHTML: "", querySelectorAll: () => [] };
-  const rows = [1, 2, 3, 4].map(weekNumber => ({
-    id: `${assignmentId}-${weekNumber}`,
-    routine_id: routineId,
-    exercise_id: exerciseId,
-    week_number: weekNumber,
-    day_name: "Martes",
-    sets: 4,
-    repetitions: 12,
-    rest_seconds: 60,
-    display_order: 0,
-    exercises: { title: "Abductor Máquina", category: "Pierna", media_url: "", media_type: "video" }
-  }));
+  const rows = Array.from({ length: exerciseCount }, (_, exerciseIndex) =>
+    [1, 2, 3, 4].map(weekNumber => ({
+      id: `${assignmentId.slice(0, -1)}${exerciseIndex}-${weekNumber}`,
+      routine_id: routineId,
+      exercise_id: `${exerciseId.slice(0, -1)}${exerciseIndex}`,
+      week_number: weekNumber,
+      day_name: "Martes",
+      sets: 4,
+      repetitions: 12,
+      rest_seconds: 60,
+      display_order: exerciseIndex,
+      exercises: { title: `Ejercicio ${exerciseIndex + 1}`, category: "Pierna", media_url: "", media_type: "video" }
+    }))
+  ).flat();
   const elements = {
     selectedUserAssignments: container,
-    routineWeek: { value: String(week) },
     routineDay: { value: "Martes" }
   };
   const context = {
@@ -115,22 +116,23 @@ function renderAssignmentsForWeek(week) {
   return context.renderSelectedUserAssignments().then(() => container.innerHTML);
 }
 
-for (const week of [1, 2, 3, 4]) {
-  test(`semana ${week} muestra una sola tarjeta de la asignación mensual`, async () => {
-    const rendered = await renderAssignmentsForWeek(week);
-    assert.equal((rendered.match(/assigned-exercise-card/g) || []).length, 1);
-    assert.equal((rendered.match(/Abductor Máquina/g) || []).length, 1);
-    assert.match(rendered, new RegExp(`Semana ${week} · Martes`));
-  });
-}
-
-test("nunca reúne las cuatro semanas como tarjetas duplicadas", async () => {
-  for (const week of [1, 2, 3, 4]) {
-    const rendered = await renderAssignmentsForWeek(week);
-    assert.equal((rendered.match(/data-delete-routine-exercise/g) || []).length, 1);
-  }
-  assert.match(html, /id="routineWeek"/);
+test("la vista maestra muestra únicamente week_number 1", async () => {
+  const rendered = await renderMasterAssignments();
+  assert.equal((rendered.match(/assigned-exercise-card/g) || []).length, 1);
+  assert.match(rendered, /Ejercicio 1/);
+  assert.match(rendered, /Semana 1 · Martes/);
+  assert.doesNotMatch(rendered, /Semana [234]/);
+  assert.doesNotMatch(html, /id="routineWeek"/);
+  assert.match(app, /const selectedWeek = 1/);
   assert.match(app, /Number\(item\.week_number\) === selectedWeek && item\.day_name === selectedDay/);
+});
+
+test("varios ejercicios distintos aparecen una sola vez cada uno", async () => {
+  const rendered = await renderMasterAssignments(3);
+  assert.equal((rendered.match(/assigned-exercise-card/g) || []).length, 3);
+  for (const title of ["Ejercicio 1", "Ejercicio 2", "Ejercicio 3"]) {
+    assert.equal((rendered.match(new RegExp(title, "g")) || []).length, 1);
+  }
 });
 
 test("impide una asignación duplicada antes del insert", async () => {
@@ -198,6 +200,50 @@ test("elimina por UUID real sólo en routine_exercises", async () => {
   assert.equal(state.tables.at(-1), "routine_exercises");
 });
 
+test("elimina el conjunto mensual desde el UUID real de semana 1", async () => {
+  const filters = [];
+  const removedRows = [1, 2, 3, 4].map(week_number => ({ id: `${assignmentId}-${week_number}`, week_number }));
+  const client = {
+    from(table) {
+      assert.equal(table, "routine_exercises");
+      let operation = "lookup";
+      return {
+        select() {
+          return operation === "delete"
+            ? Promise.resolve({ data: removedRows, error: null })
+            : this;
+        },
+        eq(column, value) { filters.push({ operation, column, value }); return this; },
+        in(column, value) { filters.push({ operation, column, value }); return this; },
+        maybeSingle: async () => ({
+          data: { id: assignmentId, routine_id: routineId, exercise_id: exerciseId, week_number: 1, day_name: "Lunes" },
+          error: null
+        }),
+        delete() { operation = "delete"; return this; }
+      };
+    }
+  };
+  const ns = {
+    requireClient: () => client,
+    ok: data => ({ data, error: null }),
+    fail: (error, context) => ({ data: null, error: { message: error?.message || String(error), context } })
+  };
+  const context = { window: { TrainerSupabase: ns }, console: { log() {} } };
+  vm.createContext(context);
+  vm.runInContext(routinesModule, context);
+
+  const result = await ns.routines.removeMonthlyExerciseAssignment(assignmentId);
+  assert.equal(result.error, null);
+  assert.equal(result.data.length, 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(filters)), [
+    { operation: "lookup", column: "id", value: assignmentId },
+    { operation: "delete", column: "routine_id", value: routineId },
+    { operation: "delete", column: "exercise_id", value: exerciseId },
+    { operation: "delete", column: "day_name", value: "Lunes" },
+    { operation: "delete", column: "week_number", value: [1, 2, 3, 4] }
+  ]);
+});
+
 function deletionContext(deleteResult) {
   const start = app.indexOf("async function deleteRoutineExerciseAssignment");
   const end = app.indexOf("async function renderSelectedUserAssignments", start);
@@ -209,7 +255,7 @@ function deletionContext(deleteResult) {
     confirm: () => true,
     alert: message => alerts.push(message),
     renderSelectedUserAssignments: async () => { renders += 1; },
-    window: { TrainerSupabase: { routines: { removeRoutineExercise: async () => { calls += 1; return deleteResult; } } } }
+    window: { TrainerSupabase: { routines: { removeMonthlyExerciseAssignment: async () => { calls += 1; return deleteResult; } } } }
   };
   vm.createContext(context);
   vm.runInContext(app.slice(start, end), context);
@@ -236,7 +282,7 @@ test("doble eliminación del mismo UUID sólo ejecuta una solicitud", async () =
   let calls = 0;
   const pending = new Promise(resolve => { release = resolve; });
   const state = deletionContext(null);
-  state.context.window.TrainerSupabase.routines.removeRoutineExercise = async () => {
+  state.context.window.TrainerSupabase.routines.removeMonthlyExerciseAssignment = async () => {
     calls += 1;
     await pending;
     return { data: null, error: null };
@@ -252,6 +298,7 @@ test("doble eliminación del mismo UUID sólo ejecuta una solicitud", async () =
 test("la interfaz renderiza Eliminar con el UUID real de la asignación", () => {
   assert.match(app, /data-delete-routine-exercise="\$\{escapeHTML\(item\.id\)\}"/);
   assert.match(app, /deleteRoutineExerciseAssignment\(button\.dataset\.deleteRoutineExercise, button\)/);
+  assert.match(app, /removeMonthlyExerciseAssignment\(assignmentId\)/);
   assert.match(html, /id="btnAssignExerciseToUser" type="button"/);
 });
 

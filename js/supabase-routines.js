@@ -169,6 +169,33 @@
     removeRoutineExercise(id) {
       if (!uuidPattern.test(id || "")) return Promise.resolve(ns.fail("ID de asignación inválido", "removeRoutineExercise"));
       return run("removeRoutineExercise", client => client.from("routine_exercises").delete().eq("id", id));
+    },
+    async removeMonthlyExerciseAssignment(id) {
+      if (!uuidPattern.test(id || "")) {
+        return ns.fail("ID de asignación inválido", "removeMonthlyExerciseAssignment");
+      }
+      try {
+        const client = ns.requireClient();
+        const assignment = await client.from("routine_exercises")
+          .select("id, routine_id, exercise_id, week_number, day_name")
+          .eq("id", id)
+          .maybeSingle();
+        if (assignment.error) throw assignment.error;
+        if (!assignment.data) throw new Error("La asignación ya no existe");
+
+        const { routine_id: routineId, exercise_id: exerciseId, day_name: dayName } = assignment.data;
+        const removed = await client.from("routine_exercises")
+          .delete()
+          .eq("routine_id", routineId)
+          .eq("exercise_id", exerciseId)
+          .eq("day_name", dayName)
+          .in("week_number", [1, 2, 3, 4])
+          .select("id, week_number");
+        if (removed.error) throw removed.error;
+        return ns.ok(removed.data || []);
+      } catch (error) {
+        return ns.fail(error, "removeMonthlyExerciseAssignment");
+      }
     }
   };
 })(window.TrainerSupabase);

@@ -2608,7 +2608,7 @@ async function deleteRoutineExerciseAssignment(assignmentId, button = null) {
   deletingRoutineExerciseIds.add(assignmentId);
   if (button) button.disabled = true;
   try {
-    const result = await window.TrainerSupabase.routines.removeRoutineExercise(assignmentId);
+    const result = await window.TrainerSupabase.routines.removeMonthlyExerciseAssignment(assignmentId);
     if (result.error) {
       alert(`No se pudo eliminar el ejercicio de la rutina: ${result.error.message}`);
       return false;
@@ -2638,7 +2638,7 @@ async function renderSelectedUserAssignments() {
       container.innerHTML = `<p>No se pudieron cargar las asignaciones: ${escapeHTML(result.error.message)}</p>`;
       return;
     }
-    const selectedWeek = Number($("routineWeek")?.value || 1);
+    const selectedWeek = 1;
     const selectedDay = $("routineDay")?.value || "Lunes";
     const exercises = (result.data || []).flatMap(routine =>
       (routine.routine_exercises || []).map(item => ({ ...item, routineName: routine.name }))
@@ -3995,7 +3995,6 @@ if ($("btnGoProfile")) {
     });
   }
 
-  $("routineWeek")?.addEventListener("change", renderSelectedUserAssignments);
   $("routineDay")?.addEventListener("change", renderSelectedUserAssignments);
 
   if ($("exerciseCategoryFilter")) {
