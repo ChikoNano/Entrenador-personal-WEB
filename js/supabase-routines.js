@@ -126,11 +126,27 @@
         console.log("Filas semanales a insertar:", rows);
 
         const supabase = ns.requireClient();
+        const existing = await supabase
+          .from("routine_exercises")
+          .select("id, week_number")
+          .eq("routine_id", routineId)
+          .eq("exercise_id", exerciseId)
+          .eq("day_name", dayName)
+          .in("week_number", [1, 2, 3, 4]);
+
+        if (existing.error) throw existing.error;
+        if ((existing.data || []).length > 0) {
+          throw new Error("Este ejercicio ya está asignado a esta rutina y día");
+        }
+
         const { data, error } = await supabase
           .from("routine_exercises")
           .insert(rows)
           .select();
 
+        if (error?.code === "23505") {
+          throw new Error("Este ejercicio ya está asignado a esta rutina y día");
+        }
         if (error) throw error;
 
         if (!Array.isArray(data) || data.length !== 4) {
@@ -151,7 +167,7 @@
         .update(value).eq("id", id).select().single());
     },
     removeRoutineExercise(id) {
-      if (!id) return Promise.resolve(ns.fail("ID obligatorio", "removeRoutineExercise"));
+      if (!uuidPattern.test(id || "")) return Promise.resolve(ns.fail("ID de asignación inválido", "removeRoutineExercise"));
       return run("removeRoutineExercise", client => client.from("routine_exercises").delete().eq("id", id));
     }
   };

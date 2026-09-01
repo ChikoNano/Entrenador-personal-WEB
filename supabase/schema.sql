@@ -74,7 +74,9 @@ create table if not exists public.routine_exercises (
   rest_seconds integer not null default 0 check (rest_seconds >= 0), notes text,
   display_order integer not null default 0 check (display_order >= 0),
   created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
-  constraint routine_exercises_id_week_key unique (id, week_number)
+  constraint routine_exercises_id_week_key unique (id, week_number),
+  constraint routine_exercises_logical_assignment_key
+    unique (routine_id, exercise_id, week_number, day_name)
 );
 
 create table if not exists public.subscriptions (
@@ -115,6 +117,10 @@ do $$ begin
   if not exists (select 1 from pg_constraint where conname='routine_exercises_day_name_check') then
     alter table public.routine_exercises add constraint routine_exercises_day_name_check
       check (day_name in ('Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname='routine_exercises_logical_assignment_key') then
+    alter table public.routine_exercises add constraint routine_exercises_logical_assignment_key
+      unique (routine_id, exercise_id, week_number, day_name);
   end if;
   if not exists (select 1 from pg_constraint where conname='exercise_completions_assignment_week_fk') then
     alter table public.exercise_completions add constraint exercise_completions_assignment_week_fk

@@ -1240,6 +1240,22 @@ details[open] summary::after {
   object-fit: contain;
 }
 
+.routine-assignment-delete {
+  width: auto;
+  min-width: 110px;
+  margin-top: .75rem;
+  border-color: rgba(229, 72, 77, .24);
+  background: var(--danger-soft);
+  color: var(--danger) !important;
+  box-shadow: none;
+}
+
+.routine-assignment-delete:disabled {
+  cursor: wait;
+  opacity: .58;
+  transform: none;
+}
+
 .assigned-media-fallback {
   margin: 0;
   padding: 1.25rem;

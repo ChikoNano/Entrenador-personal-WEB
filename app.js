@@ -1,5 +1,7 @@
 let currentSlide = 0;
 let isAssessmentSubmitting = false;
+let isRoutineAssignmentSubmitting = false;
+const deletingRoutineExerciseIds = new Set();
 let pendingProfilePhotoFile = null;
 let pendingProfilePhotoPreviewUrl = "";
 let supabaseAuthStateSubscription = null;
@@ -2513,24 +2515,39 @@ async function assignExerciseToUser() {
   if (restValue === "" || !Number.isInteger(rest) || rest < 0) return alert("Ingresa un descanso válido en segundos");
 
   if (supabaseMode) {
-    const result = await window.TrainerSupabase.routines.assignExercise({
-      user_id: userId,
-      exercise_id: exerciseValue,
-      day_name: day,
-      sets,
-      repetitions: reps,
-      rest_seconds: rest
-    });
-    if (result.error) {
-      alert(`No se pudo asignar el ejercicio: ${result.error.message}`);
-      return;
+    if (isRoutineAssignmentSubmitting) return;
+    const button = $("btnAssignExerciseToUser");
+    isRoutineAssignmentSubmitting = true;
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Asignando...";
     }
-    $("exerciseSets").value = "";
-    $("exerciseReps").value = "";
-    $("exerciseRest").value = "";
-    await renderSelectedUserAssignments();
-    alert("Ejercicio asignado correctamente");
-    return;
+    try {
+      const result = await window.TrainerSupabase.routines.assignExercise({
+        user_id: userId,
+        exercise_id: exerciseValue,
+        day_name: day,
+        sets,
+        repetitions: reps,
+        rest_seconds: rest
+      });
+      if (result.error) {
+        alert(`No se pudo asignar el ejercicio: ${result.error.message}`);
+        return;
+      }
+      $("exerciseSets").value = "";
+      $("exerciseReps").value = "";
+      $("exerciseRest").value = "";
+      await renderSelectedUserAssignments();
+      alert("Ejercicio asignado correctamente");
+      return;
+    } finally {
+      isRoutineAssignmentSubmitting = false;
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Asignar ejercicio";
+      }
+    }
   }
 
   const exerciseId = Number(exerciseValue);
@@ -2584,6 +2601,26 @@ function removeExerciseFromUser(dayKey, exerciseId) {
   renderUserExercises();
 }
 
+async function deleteRoutineExerciseAssignment(assignmentId, button = null) {
+  if (!assignmentId || deletingRoutineExerciseIds.has(assignmentId)) return false;
+  if (!confirm("¿Eliminar este ejercicio de la rutina?")) return false;
+
+  deletingRoutineExerciseIds.add(assignmentId);
+  if (button) button.disabled = true;
+  try {
+    const result = await window.TrainerSupabase.routines.removeRoutineExercise(assignmentId);
+    if (result.error) {
+      alert(`No se pudo eliminar el ejercicio de la rutina: ${result.error.message}`);
+      return false;
+    }
+    await renderSelectedUserAssignments();
+    return true;
+  } finally {
+    deletingRoutineExerciseIds.delete(assignmentId);
+    if (button?.isConnected) button.disabled = false;
+  }
+}
+
 async function renderSelectedUserAssignments() {
   const container = $("selectedUserAssignments");
   const userEmail = getSelectedUserEmail();
@@ -2622,6 +2659,8 @@ async function renderSelectedUserAssignments() {
             ${media}
             <p class="assigned-media-fallback${media ? " hidden" : ""}">Vista previa no disponible</p>
           </div>
+          <button class="btn routine-assignment-delete" type="button"
+            data-delete-routine-exercise="${escapeHTML(item.id)}">Eliminar</button>
         </div>
       `;
     }).join("") : "<p>Este usuario no tiene ejercicios asignados.</p>";
@@ -3942,6 +3981,14 @@ if ($("btnGoProfile")) {
 
   if ($("btnAssignExerciseToUser")) {
     $("btnAssignExerciseToUser").addEventListener("click", assignExerciseToUser);
+  }
+
+  if ($("selectedUserAssignments")) {
+    $("selectedUserAssignments").addEventListener("click", event => {
+      const button = event.target.closest("[data-delete-routine-exercise]");
+      if (!button) return;
+      deleteRoutineExerciseAssignment(button.dataset.deleteRoutineExercise, button);
+    });
   }
 
   if ($("exerciseCategoryFilter")) {
