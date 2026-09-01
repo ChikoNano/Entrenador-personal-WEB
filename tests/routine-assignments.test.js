@@ -65,7 +65,72 @@ test("agrega un ejercicio una sola vez como cuatro asignaciones semanales", asyn
   const result = await state.routines.syncExerciseAcrossFourWeeks(assignment());
   assert.equal(result.error, null);
   assert.equal(state.inserts.length, 1);
-  assert.deepEqual(Array.from(state.inserts[0], row => row.week_number), [1, 2, 3, 4]);
+  const rows = state.inserts[0];
+  assert.equal(rows.length, 4);
+  assert.deepEqual(Array.from(rows, row => row.week_number), [1, 2, 3, 4]);
+  assert.equal(new Set(rows.map(row => row.week_number)).size, 4);
+  assert.ok(rows.every(row => row.routine_id === routineId));
+  assert.ok(rows.every(row => row.exercise_id === exerciseId));
+  assert.ok(rows.every(row => row.day_name === "Lunes"));
+});
+
+function renderAssignmentsForWeek(week) {
+  const start = app.indexOf("async function renderSelectedUserAssignments");
+  const end = app.indexOf("async function renderSelectedUserProfile", start);
+  const container = { innerHTML: "", querySelectorAll: () => [] };
+  const rows = [1, 2, 3, 4].map(weekNumber => ({
+    id: `${assignmentId}-${weekNumber}`,
+    routine_id: routineId,
+    exercise_id: exerciseId,
+    week_number: weekNumber,
+    day_name: "Martes",
+    sets: 4,
+    repetitions: 12,
+    rest_seconds: 60,
+    display_order: 0,
+    exercises: { title: "Abductor Máquina", category: "Pierna", media_url: "", media_type: "video" }
+  }));
+  const elements = {
+    selectedUserAssignments: container,
+    routineWeek: { value: String(week) },
+    routineDay: { value: "Martes" }
+  };
+  const context = {
+    window: { TrainerSupabase: {
+      isConfigured: () => true,
+      routines: { listUserRoutines: async () => ({
+        data: [{ id: routineId, name: "Rutina mensual", routine_exercises: rows }],
+        error: null
+      }) }
+    } },
+    $: id => elements[id] || null,
+    getSelectedUserEmail: () => "usuario@fit51.test",
+    getSelectedUserId: () => "55555555-5555-4555-8555-555555555555",
+    escapeHTML: value => String(value ?? ""),
+    sanitizeMediaURL: () => "",
+    console
+  };
+  vm.createContext(context);
+  vm.runInContext(app.slice(start, end), context);
+  return context.renderSelectedUserAssignments().then(() => container.innerHTML);
+}
+
+for (const week of [1, 2, 3, 4]) {
+  test(`semana ${week} muestra una sola tarjeta de la asignación mensual`, async () => {
+    const rendered = await renderAssignmentsForWeek(week);
+    assert.equal((rendered.match(/assigned-exercise-card/g) || []).length, 1);
+    assert.equal((rendered.match(/Abductor Máquina/g) || []).length, 1);
+    assert.match(rendered, new RegExp(`Semana ${week} · Martes`));
+  });
+}
+
+test("nunca reúne las cuatro semanas como tarjetas duplicadas", async () => {
+  for (const week of [1, 2, 3, 4]) {
+    const rendered = await renderAssignmentsForWeek(week);
+    assert.equal((rendered.match(/data-delete-routine-exercise/g) || []).length, 1);
+  }
+  assert.match(html, /id="routineWeek"/);
+  assert.match(app, /Number\(item\.week_number\) === selectedWeek && item\.day_name === selectedDay/);
 });
 
 test("impide una asignación duplicada antes del insert", async () => {

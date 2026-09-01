@@ -2638,9 +2638,13 @@ async function renderSelectedUserAssignments() {
       container.innerHTML = `<p>No se pudieron cargar las asignaciones: ${escapeHTML(result.error.message)}</p>`;
       return;
     }
+    const selectedWeek = Number($("routineWeek")?.value || 1);
+    const selectedDay = $("routineDay")?.value || "Lunes";
     const exercises = (result.data || []).flatMap(routine =>
       (routine.routine_exercises || []).map(item => ({ ...item, routineName: routine.name }))
-    );
+    ).filter(item =>
+      Number(item.week_number) === selectedWeek && item.day_name === selectedDay
+    ).sort((a, b) => Number(a.display_order || 0) - Number(b.display_order || 0));
     container.innerHTML = exercises.length ? exercises.map(item => {
       const exercise = Array.isArray(item.exercises) ? item.exercises[0] : item.exercises;
       const mediaUrl = sanitizeMediaURL(exercise?.media_url);
@@ -2663,7 +2667,7 @@ async function renderSelectedUserAssignments() {
             data-delete-routine-exercise="${escapeHTML(item.id)}">Eliminar</button>
         </div>
       `;
-    }).join("") : "<p>Este usuario no tiene ejercicios asignados.</p>";
+    }).join("") : `<p>Este usuario no tiene ejercicios asignados para Semana ${selectedWeek} · ${escapeHTML(selectedDay)}.</p>`;
 
     container.querySelectorAll("[data-assigned-media]").forEach(media => {
       media.addEventListener("error", () => {
@@ -3990,6 +3994,9 @@ if ($("btnGoProfile")) {
       deleteRoutineExerciseAssignment(button.dataset.deleteRoutineExercise, button);
     });
   }
+
+  $("routineWeek")?.addEventListener("change", renderSelectedUserAssignments);
+  $("routineDay")?.addEventListener("change", renderSelectedUserAssignments);
 
   if ($("exerciseCategoryFilter")) {
     $("exerciseCategoryFilter").addEventListener("change", () => {
