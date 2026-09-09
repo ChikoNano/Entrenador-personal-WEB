@@ -12,6 +12,8 @@ La función requiere `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE
 
 ## Cronómetro de intervalos V1
 
-Ejecute `interval-timer-config-v1.sql` para crear `public.interval_timer_configs`. Esta tabla guarda únicamente la configuración asignada a la rutina activa (nombre, rondas, fases y enfriamiento). No guarda ejecuciones, resultados, estadísticas, progreso ni historial. Sus políticas permiten lectura al usuario dueño de la rutina y escritura únicamente al entrenador o administrador autorizado mediante `can_manage_user`.
+Ejecute `interval-timer-config-v1.sql` para crear `public.interval_timer_configs`. Esta tabla guarda únicamente la configuración asignada a la rutina activa (tiempo de trabajo, rondas, fases y enfriamiento). No guarda ejecuciones, resultados, estadísticas, progreso ni historial. Sus políticas permiten lectura al usuario dueño de la rutina y escritura únicamente al entrenador o administrador autorizado mediante `can_manage_user`.
+
+Si `interval-timer-config-v1.sql` ya fue ejecutado antes del ajuste de tiempo de trabajo, ejecute después `interval-timer-work-time-v1.sql`. Esta migración incremental agrega `work_seconds`, conserva las configuraciones existentes y exige que el tiempo coincida con fases × rondas, con un máximo de 30 minutos.
 
 El bucket privado `avatars` y sus políticas se crean desde `schema.sql`. Cada archivo debe usar la ruta `<auth.uid()>/<nombre-seguro>`.

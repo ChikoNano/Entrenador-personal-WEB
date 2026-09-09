@@ -470,14 +470,14 @@
       <p id="progressPercent">0%</p>
     </section>
 
-    <section class="routine-content">
+    <section class="routine-content" data-routine-priority="primary">
       <h3 class="section-label">Ejercicios del día</h3>
 
       <div id="assignedVideos" class="assigned"></div>
       <div id="assignedImages" class="assigned"></div>
     </section>
 
-    <section id="userIntervalTimerSection" class="interval-timer-card hidden" aria-labelledby="userIntervalTimerTitle">
+    <section id="userIntervalTimerSection" class="interval-timer-card hidden" data-routine-priority="secondary" aria-labelledby="userIntervalTimerTitle">
       <div class="interval-timer-heading">
         <div>
           <span class="interval-timer-eyebrow">CRONÓMETRO DE INTERVALOS</span>
@@ -629,11 +629,17 @@
     <details class="interval-config-card" open>
       <summary><strong>Cronómetro de intervalos</strong></summary>
       <div class="interval-config-form">
-        <label for="intervalTrainingName">Nombre del entrenamiento</label>
-        <input id="intervalTrainingName" type="text" maxlength="120" placeholder="Intervalos bicicleta">
-
         <label for="intervalRounds">Número de rondas</label>
         <input id="intervalRounds" type="number" min="1" max="999" value="1">
+
+        <label for="intervalWorkDuration">Tiempo de trabajo</label>
+        <div class="interval-work-time-editor">
+          <input id="intervalWorkDuration" type="number" min="1" max="30" value="1" aria-label="Duración del tiempo de trabajo">
+          <select id="intervalWorkUnit" aria-label="Unidad del tiempo de trabajo">
+            <option value="seconds">Segundos</option>
+            <option value="minutes" selected>Minutos</option>
+          </select>
+        </div>
 
         <div class="interval-config-heading">
           <h4>Fases</h4>

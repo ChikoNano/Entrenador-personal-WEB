@@ -1291,6 +1291,12 @@ details[open] summary::after {
   padding-top: 1rem;
 }
 
+.interval-work-time-editor {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(120px, .8fr);
+  gap: .6rem;
+}
+
 .interval-config-heading,
 .interval-timer-heading,
 .interval-config-actions,

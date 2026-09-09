@@ -26,15 +26,15 @@
     if (!Number.isInteger(cooldownSeconds) || cooldownSeconds < 0) {
       throw new Error("La duración del enfriamiento no es válida");
     }
-    const name = String(value?.name || "").trim();
     const cooldownIntensity = String(value?.cooldown?.intensity || "").trim();
-    if (!name) throw new Error("Ingresa el nombre del entrenamiento");
     if (cooldownSeconds > 0 && !cooldownIntensity) throw new Error("Ingresa el nivel o intensidad del enfriamiento");
     const rounds = positiveInteger(value?.rounds, "Rondas");
     if (rounds > 999) throw new Error("Rondas no puede ser mayor a 999");
+    const workSeconds = positiveInteger(value?.work_seconds, "Tiempo de trabajo");
+    if (workSeconds > 1800) throw new Error("El tiempo de trabajo máximo permitido es de 30 minutos.");
     return {
-      name,
       rounds,
+      work_seconds: workSeconds,
       phases,
       cooldown: {
         name: String(value?.cooldown?.name || "Enfriamiento").trim() || "Enfriamiento",
@@ -47,18 +47,34 @@
   function calculateSummary(value) {
     const config = normalizeConfig(value);
     const roundSeconds = config.phases.reduce((total, phase) => total + phase.duration_seconds, 0);
-    const intervalSeconds = roundSeconds * config.rounds;
+    const configuredWorkSeconds = roundSeconds * config.rounds;
     return {
       roundSeconds,
-      intervalSeconds,
+      configuredWorkSeconds,
+      workSeconds: config.work_seconds,
+      matchesWorkTime: configuredWorkSeconds === config.work_seconds,
       cooldownSeconds: config.cooldown.duration_seconds,
-      totalSeconds: intervalSeconds + config.cooldown.duration_seconds
+      totalSeconds: config.work_seconds + config.cooldown.duration_seconds
     };
+  }
+
+  const formatClock = value => {
+    const seconds = Math.max(0, Number(value) || 0);
+    return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+
+  function validateConfig(value) {
+    const config = normalizeConfig(value);
+    const summary = calculateSummary(config);
+    if (!summary.matchesWorkTime) {
+      throw new Error(`La configuración suma ${formatClock(summary.configuredWorkSeconds)} min y el tiempo de trabajo indicado es ${formatClock(summary.workSeconds)} min. Ajusta rondas o tiempos antes de continuar.`);
+    }
+    return config;
   }
 
   class IntervalEngine {
     constructor(value, options = {}) {
-      this.config = normalizeConfig(value);
+      this.config = validateConfig(value);
       this.summary = calculateSummary(this.config);
       this.now = options.now || (() => Date.now());
       this.onEvent = options.onEvent || (() => {});
@@ -123,7 +139,7 @@
         };
       }
 
-      const intervalMs = this.summary.intervalSeconds * 1000;
+      const intervalMs = this.summary.configuredWorkSeconds * 1000;
       if (elapsedMs >= intervalMs) {
         const remainingMs = totalMs - elapsedMs;
         return {
@@ -201,5 +217,5 @@
     }
   }
 
-  global.FIT51IntervalTimer = Object.freeze({ normalizeConfig, calculateSummary, IntervalEngine });
+  global.FIT51IntervalTimer = Object.freeze({ normalizeConfig, calculateSummary, validateConfig, IntervalEngine });
 })(window);

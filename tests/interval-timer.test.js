@@ -10,6 +10,7 @@ const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 const service = fs.readFileSync(path.join(root, "js", "supabase-interval-timers.js"), "utf8");
 const migration = fs.readFileSync(path.join(root, "supabase", "interval-timer-config-v1.sql"), "utf8");
+const workTimeMigration = fs.readFileSync(path.join(root, "supabase", "interval-timer-work-time-v1.sql"), "utf8");
 
 function loadCore() {
   const context = { window: {} };
@@ -19,8 +20,8 @@ function loadCore() {
 }
 
 const sample = overrides => ({
-  name: "Intervalos bicicleta",
   rounds: 2,
+  work_seconds: 120,
   phases: [
     { name: "Exhaustivo", intensity: "Nivel 10", duration_seconds: 30 },
     { name: "Regenerativo", intensity: "Nivel 6", duration_seconds: 30 }
@@ -29,10 +30,11 @@ const sample = overrides => ({
   ...overrides
 });
 
-test("calcula ronda, intervalos y tiempo total automáticamente", () => {
-  const summary = loadCore().calculateSummary(sample({ rounds: 20 }));
+test("calcula ronda, trabajo y tiempo total automáticamente", () => {
+  const summary = loadCore().calculateSummary(sample({ rounds: 20, work_seconds: 1200 }));
   assert.equal(summary.roundSeconds, 60);
-  assert.equal(summary.intervalSeconds, 1200);
+  assert.equal(summary.configuredWorkSeconds, 1200);
+  assert.equal(summary.workSeconds, 1200);
   assert.equal(summary.cooldownSeconds, 300);
   assert.equal(summary.totalSeconds, 1500);
 });
@@ -126,8 +128,8 @@ test("admite múltiples fases con nombres personalizados", () => {
 
 test("calcula correctamente diferentes cantidades de rondas", () => {
   const timer = loadCore();
-  assert.equal(timer.calculateSummary(sample({ rounds: 1 })).intervalSeconds, 60);
-  assert.equal(timer.calculateSummary(sample({ rounds: 7 })).intervalSeconds, 420);
+  assert.equal(timer.calculateSummary(sample({ rounds: 1, work_seconds: 60 })).configuredWorkSeconds, 60);
+  assert.equal(timer.calculateSummary(sample({ rounds: 7, work_seconds: 420 })).configuredWorkSeconds, 420);
 });
 
 test("la ausencia de vibración no interrumpe los avisos", () => {
@@ -139,7 +141,11 @@ test("la ausencia de vibración no interrumpe los avisos", () => {
   assert.doesNotThrow(() => context.notifyIntervalEvent("phase"));
 });
 
-test("el entrenador puede editar rondas, fases, intensidad y enfriamiento", () => {
+test("el campo nombre fue eliminado y el entrenador edita tiempo de trabajo", () => {
+  assert.doesNotMatch(html, /intervalTrainingName|Nombre del entrenamiento/);
+  assert.doesNotMatch(service, /name:\s*config\.name/);
+  assert.match(html, /id="intervalWorkDuration"[^>]*max="30"/);
+  assert.match(html, /id="intervalWorkUnit"/);
   assert.match(html, /id="intervalRounds"/);
   assert.match(html, /id="btnAddIntervalPhase"/);
   assert.match(appSource, /interval-phase-intensity/);
@@ -155,9 +161,20 @@ test("el usuario sólo recibe controles de ejecución y no edita la configuraci�
   assert.doesNotMatch(section, /<input|<select|btnAddIntervalPhase/);
 });
 
+test("la rutina diaria del entrenador permanece primero sin eliminar opciones secundarias", () => {
+  const primary = html.indexOf('data-routine-priority="primary"');
+  const secondary = html.indexOf('data-routine-priority="secondary"');
+  assert.ok(primary >= 0);
+  assert.ok(secondary > primary);
+  assert.match(html, /id="assignedVideos"/);
+  assert.match(html, /id="assignedImages"/);
+  assert.match(html, /id="userIntervalTimerSection"/);
+  assert.match(appSource, /item\.day_name === day/);
+});
+
 test("persiste sólo configuración y no resultados de sesión", () => {
   assert.match(service, /from\("interval_timer_configs"\)/);
-  assert.match(service, /name: config\.name[\s\S]*rounds: config\.rounds[\s\S]*phases: config\.phases[\s\S]*cooldown: config\.cooldown/);
+  assert.match(service, /rounds: config\.rounds[\s\S]*work_seconds: config\.work_seconds[\s\S]*phases: config\.phases[\s\S]*cooldown: config\.cooldown/);
   assert.doesNotMatch(service, /result|history|session|performance|completion/i);
   assert.doesNotMatch(migration, /timer_results|timer_sessions|performance|statistics/i);
   assert.match(migration, /No almacena resultados, sesiones, estadísticas ni desempeño/);
@@ -168,6 +185,43 @@ test("la configuración usa RLS asociada a la rutina", () => {
   assert.match(migration, /alter table public\.interval_timer_configs enable row level security/);
   assert.match(migration, /r\.user_id = auth\.uid\(\) or public\.can_manage_user\(r\.user_id\)/);
   assert.match(migration, /public\.can_manage_user\(r\.user_id\)/);
+});
+
+test("rechaza tiempo de trabajo superior a 30 minutos", () => {
+  const timer = loadCore();
+  assert.throws(
+    () => timer.normalizeConfig(sample({ work_seconds: 1801 })),
+    /El tiempo de trabajo máximo permitido es de 30 minutos\./
+  );
+});
+
+test("exige igualdad exacta entre fases por rondas y tiempo de trabajo", () => {
+  const timer = loadCore();
+  assert.doesNotThrow(() => timer.validateConfig(sample({ work_seconds: 120 })));
+  assert.throws(
+    () => timer.validateConfig(sample({ work_seconds: 121 })),
+    /La configuración suma 02:00 min y el tiempo de trabajo indicado es 02:01 min/
+  );
+});
+
+test("el enfriamiento queda fuera del trabajo y sólo se suma al total", () => {
+  const summary = loadCore().calculateSummary(sample({ work_seconds: 120 }));
+  assert.equal(summary.workSeconds, 120);
+  assert.equal(summary.configuredWorkSeconds, 120);
+  assert.equal(summary.cooldownSeconds, 300);
+  assert.equal(summary.totalSeconds, 420);
+});
+
+test("la interfaz bloquea Guardar y Previsualizar mientras no coincide", () => {
+  assert.match(appSource, /btnSaveIntervalTimer"\)\) \$\("btnSaveIntervalTimer"\)\.disabled = !valid/);
+  assert.match(appSource, /btnPreviewIntervalTimer"\)\) \$\("btnPreviewIntervalTimer"\)\.disabled = !valid/);
+  assert.match(appSource, /validateConfig\(readIntervalConfigEditor\(\)\)/);
+});
+
+test("la migración incremental elimina nombre y protege el tiempo de trabajo", () => {
+  assert.match(workTimeMigration, /drop column if exists name/);
+  assert.match(workTimeMigration, /work_seconds between 1 and 1800/);
+  assert.match(workTimeMigration, /work_seconds = public\.interval_timer_configured_work_seconds\(phases, rounds\)/);
 });
 
 test("guardar asigna únicamente la configuración normalizada a la rutina", async () => {
@@ -194,7 +248,27 @@ test("guardar asigna únicamente la configuración normalizada a la rutina", asy
   assert.equal(result.error, null);
   assert.equal(upserted.routine_id, routineId);
   assert.equal(upserted.rounds, 2);
+  assert.equal(upserted.work_seconds, 120);
   assert.equal(upserted.phases.length, 2);
   assert.equal(upserted.cooldown.duration_seconds, 300);
-  assert.deepEqual(Object.keys(upserted).sort(), ["active", "cooldown", "name", "phases", "rounds", "routine_id"]);
+  assert.deepEqual(Object.keys(upserted).sort(), ["active", "cooldown", "phases", "rounds", "routine_id", "work_seconds"]);
+});
+
+test("una configuración incoherente no ejecuta upsert en Supabase", async () => {
+  const timer = loadCore();
+  let writes = 0;
+  const ns = {
+    requireClient: () => ({ from: () => ({ upsert() { writes += 1; return this; } }) }),
+    ok: data => ({ data, error: null }),
+    fail: error => ({ data: null, error: { message: error?.message || String(error) } })
+  };
+  const context = { window: { FIT51IntervalTimer: timer, TrainerSupabase: ns } };
+  vm.createContext(context);
+  vm.runInContext(service, context);
+  const result = await ns.intervalTimers.saveForRoutine(
+    "11111111-1111-4111-8111-111111111111",
+    sample({ work_seconds: 121 })
+  );
+  assert.match(result.error.message, /Ajusta rondas o tiempos/);
+  assert.equal(writes, 0);
 });

@@ -3846,16 +3846,20 @@ function resetIntervalConfigEditor(config = null) {
   const editor = $("intervalPhasesEditor");
   if (!editor) return;
   const value = config || {
-    name: "",
     rounds: 1,
+    work_seconds: 60,
     phases: [
       { name: "Exhaustivo", intensity: "Nivel 10", duration_seconds: 30 },
       { name: "Regenerativo", intensity: "Nivel 6", duration_seconds: 30 }
     ],
     cooldown: { name: "Enfriamiento", intensity: "Nivel 5", duration_seconds: 300 }
   };
-  $("intervalTrainingName").value = value.name || "";
   $("intervalRounds").value = String(value.rounds || 1);
+  const workSeconds = Number(value.work_seconds || 60);
+  const workUsesMinutes = workSeconds % 60 === 0;
+  $("intervalWorkDuration").value = String(workUsesMinutes ? workSeconds / 60 : workSeconds);
+  $("intervalWorkUnit").value = workUsesMinutes ? "minutes" : "seconds";
+  $("intervalWorkDuration").max = workUsesMinutes ? "30" : "1800";
   editor.replaceChildren(...value.phases.map(phase => createIntervalPhaseEditor(phase, "seconds")));
   $("intervalCooldownName").value = value.cooldown?.name || "Enfriamiento";
   $("intervalCooldownIntensity").value = value.cooldown?.intensity || "";
@@ -3874,8 +3878,11 @@ function readIntervalConfigEditor() {
     )
   }));
   return window.FIT51IntervalTimer.normalizeConfig({
-    name: $("intervalTrainingName")?.value,
     rounds: $("intervalRounds")?.value,
+    work_seconds: intervalDurationToSeconds(
+      $("intervalWorkDuration")?.value,
+      $("intervalWorkUnit")?.value
+    ),
     phases,
     cooldown: {
       name: $("intervalCooldownName")?.value,
@@ -3891,12 +3898,18 @@ function readIntervalConfigEditor() {
 function updateIntervalDurationSummary() {
   const output = $("intervalDurationSummary");
   if (!output) return;
+  let valid = false;
   try {
     const summary = window.FIT51IntervalTimer.calculateSummary(readIntervalConfigEditor());
-    output.textContent = `Una ronda: ${formatIntervalTime(summary.roundSeconds)} · Intervalos: ${formatIntervalTime(summary.intervalSeconds)} · Enfriamiento: ${formatIntervalTime(summary.cooldownSeconds)} · Tiempo total: ${formatIntervalTime(summary.totalSeconds)}`;
+    valid = summary.matchesWorkTime;
+    output.textContent = valid
+      ? `Una ronda: ${formatIntervalTime(summary.roundSeconds)} · Tiempo de trabajo: ${formatIntervalTime(summary.workSeconds)} · Enfriamiento: ${formatIntervalTime(summary.cooldownSeconds)} · Total sesión: ${formatIntervalTime(summary.totalSeconds)}`
+      : `La configuración suma ${formatIntervalTime(summary.configuredWorkSeconds)} min y el tiempo de trabajo indicado es ${formatIntervalTime(summary.workSeconds)} min. Ajusta rondas o tiempos antes de continuar.`;
   } catch (error) {
     output.textContent = error.message;
   }
+  if ($("btnSaveIntervalTimer")) $("btnSaveIntervalTimer").disabled = !valid;
+  if ($("btnPreviewIntervalTimer")) $("btnPreviewIntervalTimer").disabled = !valid;
 }
 
 function notifyIntervalEvent(type) {
@@ -3925,7 +3938,7 @@ function notifyIntervalEvent(type) {
 function createIntervalRunner(config, elements) {
   let intervalId = null;
   const render = snapshot => {
-    elements.title.textContent = config.name;
+    elements.title.textContent = "Cronómetro de intervalos";
     elements.round.textContent = snapshot.mode === "cooldown"
       ? "ENFRIAMIENTO"
       : `RONDA ${String(snapshot.round).padStart(2, "0")} / ${String(snapshot.rounds).padStart(2, "0")}`;
@@ -4083,7 +4096,7 @@ async function saveTrainerIntervalTimer() {
       : ROUTINE_ASSESSMENT_CHECK_ERROR_MESSAGE);
   }
   let config;
-  try { config = readIntervalConfigEditor(); }
+  try { config = window.FIT51IntervalTimer.validateConfig(readIntervalConfigEditor()); }
   catch (error) { return alert(error.message); }
 
   const button = $("btnSaveIntervalTimer");
@@ -4101,7 +4114,7 @@ async function saveTrainerIntervalTimer() {
     $("intervalConfigMessage").textContent = "Cronómetro guardado y asignado correctamente.";
     $("intervalConfigMessage").classList.remove("hidden");
   } finally {
-    button.disabled = false;
+    updateIntervalDurationSummary();
   }
 }
 
@@ -4410,8 +4423,12 @@ if ($("btnGoProfile")) {
     });
   }
 
-  ["intervalTrainingName", "intervalRounds", "intervalPhasesEditor", "intervalCooldownName", "intervalCooldownIntensity", "intervalCooldownDuration", "intervalCooldownUnit"]
+  ["intervalRounds", "intervalWorkDuration", "intervalWorkUnit", "intervalPhasesEditor", "intervalCooldownName", "intervalCooldownIntensity", "intervalCooldownDuration", "intervalCooldownUnit"]
     .forEach(id => $(id)?.addEventListener("input", updateIntervalDurationSummary));
+  $("intervalWorkUnit")?.addEventListener("change", () => {
+    $("intervalWorkDuration").max = $("intervalWorkUnit").value === "minutes" ? "30" : "1800";
+    updateIntervalDurationSummary();
+  });
   $("btnPreviewIntervalTimer")?.addEventListener("click", previewTrainerIntervalTimer);
   $("btnSaveIntervalTimer")?.addEventListener("click", saveTrainerIntervalTimer);
 
