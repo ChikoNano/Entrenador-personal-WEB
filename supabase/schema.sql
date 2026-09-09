@@ -64,6 +64,18 @@ create table if not exists public.routines (
   constraint routine_dates check (end_date is null or start_date is null or end_date >= start_date)
 );
 
+create table if not exists public.interval_timer_configs (
+  id uuid primary key default gen_random_uuid(),
+  routine_id uuid not null unique references public.routines(id) on delete cascade,
+  name text not null check (char_length(trim(name)) between 1 and 120),
+  rounds smallint not null check (rounds between 1 and 999),
+  phases jsonb not null check (jsonb_typeof(phases)='array' and jsonb_array_length(phases)>0),
+  cooldown jsonb not null default '{"name":"Enfriamiento","intensity":"","duration_seconds":0}'::jsonb
+    check (jsonb_typeof(cooldown)='object'),
+  active boolean not null default true,
+  created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+
 create table if not exists public.routine_exercises (
   id uuid primary key default gen_random_uuid(), routine_id uuid not null references public.routines(id) on delete cascade,
   exercise_id uuid not null references public.exercises(id) on delete restrict,
@@ -144,7 +156,7 @@ grant select on public.subscription_overview to authenticated;
 
 create or replace function public.set_updated_at() returns trigger language plpgsql set search_path=public,pg_temp as $$
 begin new.updated_at=now(); return new; end $$;
-do $$ declare t text; begin foreach t in array array['profiles','initial_assessments','exercises','routines','routine_exercises','subscriptions'] loop
+do $$ declare t text; begin foreach t in array array['profiles','initial_assessments','exercises','routines','routine_exercises','interval_timer_configs','subscriptions'] loop
   execute format('drop trigger if exists set_updated_at on public.%I',t);
   execute format('create trigger set_updated_at before update on public.%I for each row execute function public.set_updated_at()',t);
 end loop; end $$;
@@ -215,6 +227,7 @@ alter table public.legal_consents enable row level security;
 alter table public.exercises enable row level security;
 alter table public.routines enable row level security;
 alter table public.routine_exercises enable row level security;
+alter table public.interval_timer_configs enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.subscription_events enable row level security;
 alter table public.exercise_completions enable row level security;
@@ -248,6 +261,10 @@ drop policy if exists routine_exercises_read on public.routine_exercises;
 create policy routine_exercises_read on public.routine_exercises for select to authenticated using (exists(select 1 from public.routines r where r.id=routine_id and (r.user_id=auth.uid() or public.can_manage_user(r.user_id))));
 drop policy if exists routine_exercises_staff_write on public.routine_exercises;
 create policy routine_exercises_staff_write on public.routine_exercises for all to authenticated using (exists(select 1 from public.routines r where r.id=routine_id and public.can_manage_user(r.user_id))) with check (exists(select 1 from public.routines r where r.id=routine_id and public.can_manage_user(r.user_id)));
+drop policy if exists interval_timer_configs_read on public.interval_timer_configs;
+create policy interval_timer_configs_read on public.interval_timer_configs for select to authenticated using (exists(select 1 from public.routines r where r.id=routine_id and (r.user_id=auth.uid() or public.can_manage_user(r.user_id))));
+drop policy if exists interval_timer_configs_staff_write on public.interval_timer_configs;
+create policy interval_timer_configs_staff_write on public.interval_timer_configs for all to authenticated using (exists(select 1 from public.routines r where r.id=routine_id and public.can_manage_user(r.user_id))) with check (exists(select 1 from public.routines r where r.id=routine_id and public.can_manage_user(r.user_id)));
 drop policy if exists subscriptions_read on public.subscriptions;
 create policy subscriptions_read on public.subscriptions for select to authenticated using (user_id=auth.uid() or public.can_manage_user(user_id));
 drop policy if exists subscriptions_staff_write on public.subscriptions;

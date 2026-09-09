@@ -167,6 +167,15 @@ test("doble clic en Asignar no crea dos solicitudes", async () => {
   };
   const context = {
     isRoutineAssignmentSubmitting: false,
+    routineAssignmentEligibility: {
+      userId: "55555555-5555-4555-8555-555555555555",
+      status: "COMPLETED"
+    },
+    ROUTINE_ASSESSMENT_PENDING_MESSAGE: "Cuestionario pendiente",
+    ROUTINE_ASSESSMENT_CHECK_ERROR_MESSAGE: "Error al consultar cuestionario",
+    updateRoutineAssignmentEligibilityUI: () => {
+      elements.btnAssignExerciseToUser.disabled = context.isRoutineAssignmentSubmitting;
+    },
     window: { TrainerSupabase: {
       isConfigured: () => true,
       routines: { assignExercise: async () => { calls += 1; await pending; return { data: [], error: null }; } }

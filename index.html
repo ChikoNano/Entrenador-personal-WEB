@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Entrenador Físico - Plataforma</title>
-  <link rel="stylesheet" href="styles.css?v=20260831-routine-actions">
+  <link rel="stylesheet" href="styles.css?v=20260909-interval-timer-v1">
 </head>
 <body class="auth-routing">
 
@@ -476,6 +476,35 @@
       <div id="assignedVideos" class="assigned"></div>
       <div id="assignedImages" class="assigned"></div>
     </section>
+
+    <section id="userIntervalTimerSection" class="interval-timer-card hidden" aria-labelledby="userIntervalTimerTitle">
+      <div class="interval-timer-heading">
+        <div>
+          <span class="interval-timer-eyebrow">CRONÓMETRO DE INTERVALOS</span>
+          <h3 id="userIntervalTimerTitle">Entrenamiento por intervalos</h3>
+        </div>
+        <span id="userIntervalRound" class="interval-round">RONDA 01 / 01</span>
+      </div>
+      <div class="interval-current-phase">
+        <strong id="userIntervalPhase">LISTO</strong>
+        <span id="userIntervalIntensity">NIVEL —</span>
+        <output id="userIntervalCountdown" class="interval-countdown">00:00</output>
+        <div id="userIntervalFinalCountdown" class="interval-final-countdown" aria-live="assertive"></div>
+      </div>
+      <div class="interval-progress-track" aria-label="Progreso del cronómetro">
+        <div id="userIntervalProgress" class="interval-progress-fill"></div>
+      </div>
+      <div class="interval-timer-meta">
+        <p><span>Próximo</span><strong id="userIntervalNext">—</strong></p>
+        <p><span>Tiempo total restante</span><strong id="userIntervalTotalRemaining">00:00</strong></p>
+      </div>
+      <p id="userIntervalStatus" class="interval-status" aria-live="polite">Listo para iniciar</p>
+      <div class="interval-controls">
+        <button id="btnUserIntervalStart" class="btn" type="button">INICIAR</button>
+        <button id="btnUserIntervalPause" class="btn interval-secondary-btn" type="button" disabled>PAUSAR</button>
+        <button id="btnUserIntervalFinish" class="btn interval-danger-btn" type="button" disabled>TERMINAR</button>
+      </div>
+    </section>
   </main>
 
   <!-- FOOTER -->
@@ -582,9 +611,10 @@
            placeholder="Descanso en segundos"
            min="0">
 
-    <button class="btn" id="btnAssignExerciseToUser" type="button">
+    <button class="btn" id="btnAssignExerciseToUser" type="button" disabled>
       Asignar ejercicio
     </button>
+    <p id="routineAssignmentEligibilityMessage" class="hidden" role="status"></p>
 
     <details>
       <summary>
@@ -593,6 +623,42 @@
 
       <div id="selectedUserAssignments"
            style="margin-top:14px;">
+      </div>
+    </details>
+
+    <details class="interval-config-card" open>
+      <summary><strong>Cronómetro de intervalos</strong></summary>
+      <div class="interval-config-form">
+        <label for="intervalTrainingName">Nombre del entrenamiento</label>
+        <input id="intervalTrainingName" type="text" maxlength="120" placeholder="Intervalos bicicleta">
+
+        <label for="intervalRounds">Número de rondas</label>
+        <input id="intervalRounds" type="number" min="1" max="999" value="1">
+
+        <div class="interval-config-heading">
+          <h4>Fases</h4>
+          <button id="btnAddIntervalPhase" class="btn interval-small-btn" type="button">Agregar fase</button>
+        </div>
+        <div id="intervalPhasesEditor"></div>
+
+        <h4>Enfriamiento final</h4>
+        <div class="interval-phase-editor interval-cooldown-editor">
+          <input id="intervalCooldownName" type="text" value="Enfriamiento" aria-label="Nombre del enfriamiento">
+          <input id="intervalCooldownIntensity" type="text" placeholder="Nivel 5" aria-label="Nivel del enfriamiento">
+          <input id="intervalCooldownDuration" type="number" min="0" value="5" aria-label="Duración del enfriamiento">
+          <select id="intervalCooldownUnit" aria-label="Unidad del enfriamiento">
+            <option value="seconds">Segundos</option>
+            <option value="minutes" selected>Minutos</option>
+          </select>
+        </div>
+
+        <div id="intervalDurationSummary" class="interval-duration-summary" aria-live="polite"></div>
+        <p id="intervalConfigMessage" class="hidden" role="status"></p>
+        <div class="interval-config-actions">
+          <button id="btnPreviewIntervalTimer" class="btn interval-secondary-btn" type="button">Previsualizar</button>
+          <button id="btnSaveIntervalTimer" class="btn" type="button">Guardar cronómetro</button>
+        </div>
+        <div id="trainerIntervalPreview" class="interval-preview hidden"></div>
       </div>
     </details>
 
@@ -834,7 +900,9 @@
   <script src="js/supabase-progress.js?v=20260728"></script>
   <script src="js/supabase-storage.js?v=20260728"></script>
   <script src="js/migration-localstorage.js?v=20260728"></script>
-  <script src="app.js?v=20260831-routine-master-week"></script>
+  <script src="js/interval-timer.js?v=20260909-v1"></script>
+  <script src="js/supabase-interval-timers.js?v=20260909-v1"></script>
+  <script src="app.js?v=20260909-interval-timer-v1"></script>
 
 </body>
 </html>
