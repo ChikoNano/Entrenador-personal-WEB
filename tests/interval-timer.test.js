@@ -118,9 +118,9 @@ test("emite la cuenta regresiva 3, 2, 1", () => {
 test("admite múltiples fases con nombres personalizados", () => {
   const timer = loadCore();
   const config = timer.normalizeConfig(sample({ phases: [
-    { name: "Subida", intensity: "RPE 8", duration_seconds: 10 },
-    { name: "Llano", intensity: "RPE 5", duration_seconds: 20 },
-    { name: "Sprint", intensity: "RPE 10", duration_seconds: 5 }
+    { name: "Subida", intensity: "Nivel 8", duration_seconds: 10 },
+    { name: "Llano", intensity: "Nivel 5", duration_seconds: 20 },
+    { name: "Sprint", intensity: "Nivel 10", duration_seconds: 5 }
   ] }));
   assert.deepEqual(Array.from(config.phases, phase => phase.name), ["Subida", "Llano", "Sprint"]);
   assert.equal(timer.calculateSummary(config).roundSeconds, 35);
@@ -151,6 +151,58 @@ test("el campo nombre fue eliminado y el entrenador edita tiempo de trabajo", ()
   assert.match(appSource, /interval-phase-intensity/);
   assert.match(html, /id="intervalCooldownDuration"/);
   assert.match(appSource, /readIntervalConfigEditor/);
+});
+
+test("cada fase usa selector Regenerativo, Exhaustivo u Otro", () => {
+  assert.match(appSource, /\[\.\.\.standardNames, "Otro"\]/);
+  assert.match(appSource, /className = "interval-phase-name-choice"/);
+  assert.match(appSource, /className = "interval-phase-custom-name"/);
+  assert.match(appSource, /customName\.classList\.toggle\("hidden", choice !== "Otro"\)/);
+  assert.match(appSource, /customName\.disabled = choice !== "Otro"/);
+});
+
+test("el nivel de fase es un selector cerrado de Nivel 0 a Nivel 20", () => {
+  assert.match(appSource, /intensity\.className = "interval-phase-intensity"/);
+  assert.match(appSource, /for \(let level = 0; level <= 20; level \+= 1\)/);
+  assert.match(appSource, /option\.value = `Nivel \$\{level\}`/);
+  assert.doesNotMatch(appSource, /\["text", "interval-phase-intensity"/);
+});
+
+test("la duración de fase limita segundos a 60 y minutos a 30", () => {
+  assert.match(appSource, /duration\.max = unit === "minutes" \? "30" : "60"/);
+  assert.match(appSource, /duration\.min = "1"/);
+  assert.match(appSource, /event\.target\.matches\("\.interval-phase-unit"\)/);
+  const start = appSource.indexOf("function intervalPhaseDurationToSeconds");
+  const end = appSource.indexOf("function updateIntervalPhaseDurationLimits", start);
+  const context = { intervalDurationToSeconds(value, unit) { return Number(value) * (unit === "minutes" ? 60 : 1); } };
+  vm.createContext(context);
+  vm.runInContext(appSource.slice(start, end), context);
+  assert.equal(context.intervalPhaseDurationToSeconds(60, "seconds"), 60);
+  assert.ok(Number.isNaN(context.intervalPhaseDurationToSeconds(61, "seconds")));
+  assert.equal(context.intervalPhaseDurationToSeconds(30, "minutes"), 1800);
+  assert.ok(Number.isNaN(context.intervalPhaseDurationToSeconds(31, "minutes")));
+  assert.ok(Number.isNaN(context.intervalPhaseDurationToSeconds(0, "seconds")));
+});
+
+test("la validación rechaza niveles fuera del rango 0 a 20", () => {
+  const timer = loadCore();
+  assert.doesNotThrow(() => timer.normalizeConfig(sample({ phases: [
+    { name: "Regenerativo", intensity: "Nivel 0", duration_seconds: 60 }
+  ], rounds: 2 })));
+  assert.throws(() => timer.normalizeConfig(sample({ phases: [
+    { name: "Exhaustivo", intensity: "Nivel 21", duration_seconds: 60 }
+  ] })), /debe estar entre Nivel 0 y Nivel 20/);
+});
+
+test("convierte minutos a segundos para cálculos y persistencia", () => {
+  const start = appSource.indexOf("function intervalDurationToSeconds");
+  const end = appSource.indexOf("function updateIntervalPhaseDurationLimits", start);
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(appSource.slice(start, end), context);
+  assert.equal(context.intervalDurationToSeconds(30, "seconds"), 30);
+  assert.equal(context.intervalDurationToSeconds(1, "minutes"), 60);
+  assert.equal(context.intervalDurationToSeconds(5, "minutes"), 300);
 });
 
 test("el usuario sólo recibe controles de ejecución y no edita la configuración", () => {

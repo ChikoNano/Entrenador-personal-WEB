@@ -12,6 +12,10 @@
     const intensity = String(phase?.intensity || "").trim();
     if (!name) throw new Error(`La fase ${index + 1} necesita un nombre`);
     if (!intensity) throw new Error(`La fase ${index + 1} necesita un nivel o intensidad`);
+    const level = Number(intensity.match(/^Nivel (\d{1,2})$/)?.[1]);
+    if (!Number.isInteger(level) || level < 0 || level > 20) {
+      throw new Error(`El nivel de la fase ${index + 1} debe estar entre Nivel 0 y Nivel 20`);
+    }
     return {
       name,
       intensity,

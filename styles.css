@@ -1309,7 +1309,7 @@ details[open] summary::after {
 
 .interval-phase-editor {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(90px, .7fr) minmax(110px, .8fr) auto;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(0, 1fr) minmax(90px, .7fr) minmax(110px, .8fr) auto;
   gap: .6rem;
   margin-bottom: .7rem;
   padding: .75rem;
@@ -1464,7 +1464,8 @@ details[open] summary::after {
     grid-template-columns: 1fr 1fr;
   }
 
-  .interval-phase-editor input:first-child,
+  .interval-phase-name-choice,
+  .interval-phase-custom-name,
   .interval-cooldown-editor input:first-child,
   .interval-phase-remove {
     grid-column: 1 / -1;

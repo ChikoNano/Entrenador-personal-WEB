@@ -3806,39 +3806,94 @@ function intervalDurationToSeconds(value, unit) {
   return Math.round(amount * (unit === "minutes" ? 60 : 1));
 }
 
+function intervalPhaseDurationToSeconds(value, unit) {
+  const amount = Number(value);
+  const maximum = unit === "minutes" ? 30 : 60;
+  if (!Number.isFinite(amount) || amount < 1 || amount > maximum) return NaN;
+  return intervalDurationToSeconds(amount, unit);
+}
+
+function updateIntervalPhaseDurationLimits(row) {
+  const duration = row.querySelector(".interval-phase-duration");
+  const unit = row.querySelector(".interval-phase-unit")?.value;
+  if (!duration) return;
+  duration.min = "1";
+  duration.max = unit === "minutes" ? "30" : "60";
+}
+
+function updateIntervalPhaseNameEditor(row) {
+  const choice = row.querySelector(".interval-phase-name-choice")?.value;
+  const customName = row.querySelector(".interval-phase-custom-name");
+  if (!customName) return;
+  customName.classList.toggle("hidden", choice !== "Otro");
+  customName.disabled = choice !== "Otro";
+  customName.required = choice === "Otro";
+}
+
 function createIntervalPhaseEditor(phase = {}, unit = "seconds") {
   const row = document.createElement("div");
   row.className = "interval-phase-editor";
-  const fields = [
-    ["text", "interval-phase-name", "Nombre de fase", phase.name || ""],
-    ["text", "interval-phase-intensity", "Nivel/intensidad", phase.intensity || ""],
-    ["number", "interval-phase-duration", "Duración", phase.duration ?? phase.duration_seconds ?? 30]
-  ];
-  fields.forEach(([type, className, placeholder, value]) => {
-    const input = document.createElement("input");
-    input.type = type;
-    input.className = className;
-    input.placeholder = placeholder;
-    input.value = String(value);
-    if (type === "number") input.min = "1";
-    row.appendChild(input);
+  const savedName = String(phase.name || "").trim();
+  const standardNames = ["Regenerativo", "Exhaustivo"];
+  const nameChoice = document.createElement("select");
+  nameChoice.className = "interval-phase-name-choice";
+  nameChoice.setAttribute("aria-label", "Nombre de fase");
+  [...standardNames, "Otro"].forEach(label => {
+    const option = document.createElement("option");
+    option.value = label;
+    option.textContent = label;
+    option.selected = label === (standardNames.includes(savedName) ? savedName : "Otro");
+    nameChoice.appendChild(option);
   });
-  const select = document.createElement("select");
-  select.className = "interval-phase-unit";
-  select.setAttribute("aria-label", "Unidad de duración");
+  row.appendChild(nameChoice);
+
+  const customName = document.createElement("input");
+  customName.type = "text";
+  customName.className = "interval-phase-custom-name";
+  customName.placeholder = "Nombre personalizado";
+  customName.setAttribute("aria-label", "Nombre personalizado de la fase");
+  customName.value = standardNames.includes(savedName) ? "" : savedName;
+  row.appendChild(customName);
+
+  const intensity = document.createElement("select");
+  intensity.className = "interval-phase-intensity";
+  intensity.setAttribute("aria-label", "Nivel de la fase");
+  const savedLevel = Number(String(phase.intensity || "").match(/\d+/)?.[0]);
+  for (let level = 0; level <= 20; level += 1) {
+    const option = document.createElement("option");
+    option.value = `Nivel ${level}`;
+    option.textContent = `Nivel ${level}`;
+    option.selected = level === (Number.isInteger(savedLevel) && savedLevel <= 20 ? savedLevel : 0);
+    intensity.appendChild(option);
+  }
+  row.appendChild(intensity);
+
+  const duration = document.createElement("input");
+  duration.type = "number";
+  duration.className = "interval-phase-duration";
+  duration.placeholder = "Duración";
+  const savedDuration = Number(phase.duration ?? phase.duration_seconds ?? 30);
+  duration.value = String(unit === "minutes" ? savedDuration / 60 : savedDuration);
+  row.appendChild(duration);
+
+  const unitSelect = document.createElement("select");
+  unitSelect.className = "interval-phase-unit";
+  unitSelect.setAttribute("aria-label", "Unidad de duración");
   [["seconds", "Segundos"], ["minutes", "Minutos"]].forEach(([value, label]) => {
     const option = document.createElement("option");
     option.value = value;
     option.textContent = label;
     option.selected = value === unit;
-    select.appendChild(option);
+    unitSelect.appendChild(option);
   });
-  row.appendChild(select);
+  row.appendChild(unitSelect);
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "btn interval-small-btn interval-phase-remove";
   remove.textContent = "Eliminar fase";
   row.appendChild(remove);
+  updateIntervalPhaseNameEditor(row);
+  updateIntervalPhaseDurationLimits(row);
   return row;
 }
 
@@ -3860,7 +3915,10 @@ function resetIntervalConfigEditor(config = null) {
   $("intervalWorkDuration").value = String(workUsesMinutes ? workSeconds / 60 : workSeconds);
   $("intervalWorkUnit").value = workUsesMinutes ? "minutes" : "seconds";
   $("intervalWorkDuration").max = workUsesMinutes ? "30" : "1800";
-  editor.replaceChildren(...value.phases.map(phase => createIntervalPhaseEditor(phase, "seconds")));
+  editor.replaceChildren(...value.phases.map(phase => {
+    const seconds = Number(phase.duration_seconds || 0);
+    return createIntervalPhaseEditor(phase, seconds > 60 ? "minutes" : "seconds");
+  }));
   $("intervalCooldownName").value = value.cooldown?.name || "Enfriamiento";
   $("intervalCooldownIntensity").value = value.cooldown?.intensity || "";
   $("intervalCooldownDuration").value = String(value.cooldown?.duration_seconds || 0);
@@ -3870,9 +3928,11 @@ function resetIntervalConfigEditor(config = null) {
 
 function readIntervalConfigEditor() {
   const phases = Array.from(document.querySelectorAll("#intervalPhasesEditor .interval-phase-editor")).map(row => ({
-    name: row.querySelector(".interval-phase-name").value,
+    name: row.querySelector(".interval-phase-name-choice").value === "Otro"
+      ? row.querySelector(".interval-phase-custom-name").value
+      : row.querySelector(".interval-phase-name-choice").value,
     intensity: row.querySelector(".interval-phase-intensity").value,
-    duration_seconds: intervalDurationToSeconds(
+    duration_seconds: intervalPhaseDurationToSeconds(
       row.querySelector(".interval-phase-duration").value,
       row.querySelector(".interval-phase-unit").value
     )
@@ -4419,6 +4479,13 @@ if ($("btnGoProfile")) {
       const rows = $("intervalPhasesEditor").querySelectorAll(".interval-phase-editor");
       if (rows.length <= 1) return alert("El cronómetro necesita al menos una fase");
       remove.closest(".interval-phase-editor").remove();
+      updateIntervalDurationSummary();
+    });
+    $("intervalPhasesEditor").addEventListener("change", event => {
+      const row = event.target.closest(".interval-phase-editor");
+      if (!row) return;
+      if (event.target.matches(".interval-phase-name-choice")) updateIntervalPhaseNameEditor(row);
+      if (event.target.matches(".interval-phase-unit")) updateIntervalPhaseDurationLimits(row);
       updateIntervalDurationSummary();
     });
   }
