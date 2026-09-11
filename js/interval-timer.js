@@ -27,11 +27,14 @@
     const phases = Array.isArray(value?.phases) ? value.phases.map(normalizePhase) : [];
     if (!phases.length) throw new Error("Agrega al menos una fase");
     const cooldownSeconds = Number(value?.cooldown?.duration_seconds ?? 0);
-    if (!Number.isInteger(cooldownSeconds) || cooldownSeconds < 0) {
+    if (!Number.isInteger(cooldownSeconds) || cooldownSeconds < 60 || cooldownSeconds > 1800 || cooldownSeconds % 60 !== 0) {
       throw new Error("La duración del enfriamiento no es válida");
     }
     const cooldownIntensity = String(value?.cooldown?.intensity || "").trim();
-    if (cooldownSeconds > 0 && !cooldownIntensity) throw new Error("Ingresa el nivel o intensidad del enfriamiento");
+    const cooldownLevel = Number(cooldownIntensity.match(/^Nivel (\d{1,2})$/)?.[1]);
+    if (!Number.isInteger(cooldownLevel) || cooldownLevel < 0 || cooldownLevel > 20) {
+      throw new Error("El nivel del enfriamiento debe estar entre Nivel 0 y Nivel 20");
+    }
     const rounds = positiveInteger(value?.rounds, "Rondas");
     if (rounds > 999) throw new Error("Rondas no puede ser mayor a 999");
     const workSeconds = positiveInteger(value?.work_seconds, "Tiempo de trabajo");
@@ -74,6 +77,40 @@
       throw new Error(`La configuración suma ${formatClock(summary.configuredWorkSeconds)} min y el tiempo de trabajo indicado es ${formatClock(summary.workSeconds)} min. Ajusta rondas o tiempos antes de continuar.`);
     }
     return config;
+  }
+
+  function getRemainingStages(value, snapshot, limit = Number.POSITIVE_INFINITY) {
+    const config = normalizeConfig(value);
+    if (!snapshot || snapshot.mode === "finished") return [];
+    if (snapshot.mode === "cooldown") {
+      return [{ ...config.cooldown, duration_seconds: snapshot.remainingSeconds, state: "current", kind: "cooldown", round: config.rounds }];
+    }
+    const phaseIndex = Number.isInteger(snapshot.phaseIndex) ? snapshot.phaseIndex : 0;
+    const stages = [];
+    const maximumWorkItems = Math.max(1, limit - 1);
+    const totalWorkItems = (config.phases.length - phaseIndex) + ((config.rounds - snapshot.round) * config.phases.length);
+    let reachedLimit = false;
+    for (let round = Math.max(1, snapshot.round); round <= config.rounds; round += 1) {
+      const firstPhase = round === snapshot.round ? phaseIndex : 0;
+      for (let index = firstPhase; index < config.phases.length; index += 1) {
+        const isCurrent = round === snapshot.round && index === phaseIndex;
+        stages.push({
+          ...config.phases[index],
+          duration_seconds: isCurrent ? snapshot.remainingSeconds : config.phases[index].duration_seconds,
+          state: isCurrent ? "current" : stages.length === 1 ? "next" : "pending",
+          kind: "work",
+          round
+        });
+        if (stages.length >= maximumWorkItems) {
+          reachedLimit = true;
+          break;
+        }
+      }
+      if (reachedLimit) break;
+    }
+    stages.push({ ...config.cooldown, state: stages.length ? "pending" : "current", kind: "cooldown", round: config.rounds });
+    stages.omittedCount = Math.max(0, totalWorkItems + 1 - stages.length);
+    return stages;
   }
 
   class IntervalEngine {
@@ -185,6 +222,7 @@
         mode: "interval",
         round: roundIndex + 1,
         rounds: this.config.rounds,
+        phaseIndex,
         phase,
         next,
         remainingSeconds: Math.ceil(phaseRemainingMs / 1000),
@@ -221,5 +259,5 @@
     }
   }
 
-  global.FIT51IntervalTimer = Object.freeze({ normalizeConfig, calculateSummary, validateConfig, IntervalEngine });
+  global.FIT51IntervalTimer = Object.freeze({ normalizeConfig, calculateSummary, validateConfig, getRemainingStages, IntervalEngine });
 })(window);

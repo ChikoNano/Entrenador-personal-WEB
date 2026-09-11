@@ -13,6 +13,10 @@ let passwordSetupMode = "invite";
 let activeExerciseFilter = null;
 let userIntervalRunner = null;
 let userIntervalConfigId = "";
+let userIntervalMasterConfig = null;
+let userIntervalSessionConfig = null;
+let userIntervalEditorDirty = false;
+let intervalInfoTrigger = null;
 let trainerIntervalRunner = null;
 let selectedTrainerIntervalRoutineId = "";
 let trainerIntervalLoadedUserId = "";
@@ -1121,6 +1125,9 @@ async function logout() {
     userIntervalRunner?.destroy();
     userIntervalRunner = null;
     userIntervalConfigId = "";
+    userIntervalMasterConfig = null;
+    userIntervalSessionConfig = null;
+    userIntervalEditorDirty = false;
   }
   if (typeof trainerIntervalRunner !== "undefined") {
     trainerIntervalRunner?.destroy();
@@ -3813,6 +3820,12 @@ function intervalPhaseDurationToSeconds(value, unit) {
   return intervalDurationToSeconds(amount, unit);
 }
 
+function intervalCooldownMinutesToSeconds(value) {
+  const minutes = Number(value);
+  if (!Number.isInteger(minutes) || minutes < 1 || minutes > 30) return NaN;
+  return minutes * 60;
+}
+
 function updateIntervalPhaseDurationLimits(row) {
   const duration = row.querySelector(".interval-phase-duration");
   const unit = row.querySelector(".interval-phase-unit")?.value;
@@ -3828,6 +3841,19 @@ function updateIntervalPhaseNameEditor(row) {
   customName.classList.toggle("hidden", choice !== "Otro");
   customName.disabled = choice !== "Otro";
   customName.required = choice === "Otro";
+}
+
+function populateIntervalLevelSelect(select, value = "Nivel 0") {
+  if (!select) return;
+  const savedLevel = Number(String(value).match(/\d+/)?.[0]);
+  const selectedLevel = Number.isInteger(savedLevel) && savedLevel >= 0 && savedLevel <= 20 ? savedLevel : 0;
+  select.replaceChildren(...Array.from({ length: 21 }, (_, level) => {
+    const option = document.createElement("option");
+    option.value = `Nivel ${level}`;
+    option.textContent = `Nivel ${level}`;
+    option.selected = level === selectedLevel;
+    return option;
+  }));
 }
 
 function createIntervalPhaseEditor(phase = {}, unit = "seconds") {
@@ -3858,14 +3884,7 @@ function createIntervalPhaseEditor(phase = {}, unit = "seconds") {
   const intensity = document.createElement("select");
   intensity.className = "interval-phase-intensity";
   intensity.setAttribute("aria-label", "Nivel de la fase");
-  const savedLevel = Number(String(phase.intensity || "").match(/\d+/)?.[0]);
-  for (let level = 0; level <= 20; level += 1) {
-    const option = document.createElement("option");
-    option.value = `Nivel ${level}`;
-    option.textContent = `Nivel ${level}`;
-    option.selected = level === (Number.isInteger(savedLevel) && savedLevel <= 20 ? savedLevel : 0);
-    intensity.appendChild(option);
-  }
+  populateIntervalLevelSelect(intensity, phase.intensity);
   row.appendChild(intensity);
 
   const duration = document.createElement("input");
@@ -3919,10 +3938,8 @@ function resetIntervalConfigEditor(config = null) {
     const seconds = Number(phase.duration_seconds || 0);
     return createIntervalPhaseEditor(phase, seconds > 60 ? "minutes" : "seconds");
   }));
-  $("intervalCooldownName").value = value.cooldown?.name || "Enfriamiento";
-  $("intervalCooldownIntensity").value = value.cooldown?.intensity || "";
-  $("intervalCooldownDuration").value = String(value.cooldown?.duration_seconds || 0);
-  $("intervalCooldownUnit").value = "seconds";
+  populateIntervalLevelSelect($("intervalCooldownIntensity"), value.cooldown?.intensity || "Nivel 0");
+  $("intervalCooldownDuration").value = String(Math.max(1, Number(value.cooldown?.duration_seconds || 60) / 60));
   updateIntervalDurationSummary();
 }
 
@@ -3945,14 +3962,70 @@ function readIntervalConfigEditor() {
     ),
     phases,
     cooldown: {
-      name: $("intervalCooldownName")?.value,
+      name: "Enfriamiento",
       intensity: $("intervalCooldownIntensity")?.value,
-      duration_seconds: intervalDurationToSeconds(
-        $("intervalCooldownDuration")?.value,
-        $("intervalCooldownUnit")?.value
-      )
+      duration_seconds: intervalCooldownMinutesToSeconds($("intervalCooldownDuration")?.value)
     }
   });
+}
+
+function cloneIntervalConfig(config) {
+  return JSON.parse(JSON.stringify(window.FIT51IntervalTimer.normalizeConfig(config)));
+}
+
+function resetUserIntervalEditor(config) {
+  const value = cloneIntervalConfig(config);
+  const editor = $("userIntervalPhasesEditor");
+  $("userIntervalRounds").value = String(value.rounds);
+  const workUsesMinutes = value.work_seconds % 60 === 0;
+  $("userIntervalWorkDuration").value = String(workUsesMinutes ? value.work_seconds / 60 : value.work_seconds);
+  $("userIntervalWorkUnit").value = workUsesMinutes ? "minutes" : "seconds";
+  $("userIntervalWorkDuration").max = workUsesMinutes ? "30" : "1800";
+  editor.replaceChildren(...value.phases.map(phase => createIntervalPhaseEditor(
+    phase,
+    Number(phase.duration_seconds) > 60 ? "minutes" : "seconds"
+  )));
+  populateIntervalLevelSelect($("userIntervalCooldownIntensity"), value.cooldown.intensity);
+  $("userIntervalCooldownDuration").value = String(value.cooldown.duration_seconds / 60);
+  userIntervalEditorDirty = false;
+  updateUserIntervalDurationSummary();
+}
+
+function readUserIntervalConfigEditor() {
+  const phases = Array.from(document.querySelectorAll("#userIntervalPhasesEditor .interval-phase-editor")).map(row => ({
+    name: row.querySelector(".interval-phase-name-choice").value === "Otro"
+      ? row.querySelector(".interval-phase-custom-name").value
+      : row.querySelector(".interval-phase-name-choice").value,
+    intensity: row.querySelector(".interval-phase-intensity").value,
+    duration_seconds: intervalPhaseDurationToSeconds(
+      row.querySelector(".interval-phase-duration").value,
+      row.querySelector(".interval-phase-unit").value
+    )
+  }));
+  return window.FIT51IntervalTimer.normalizeConfig({
+    rounds: $("userIntervalRounds")?.value,
+    work_seconds: intervalDurationToSeconds($("userIntervalWorkDuration")?.value, $("userIntervalWorkUnit")?.value),
+    phases,
+    cooldown: {
+      name: "Enfriamiento",
+      intensity: $("userIntervalCooldownIntensity")?.value,
+      duration_seconds: intervalCooldownMinutesToSeconds($("userIntervalCooldownDuration")?.value)
+    }
+  });
+}
+
+function updateUserIntervalDurationSummary() {
+  const output = $("userIntervalDurationSummary");
+  if (!output) return;
+  let valid = false;
+  try {
+    const summary = window.FIT51IntervalTimer.calculateSummary(readUserIntervalConfigEditor());
+    valid = summary.matchesWorkTime;
+    output.textContent = valid
+      ? `Una ronda: ${formatIntervalTime(summary.roundSeconds)} · Trabajo: ${formatIntervalTime(summary.workSeconds)} · Enfriamiento: ${formatIntervalTime(summary.cooldownSeconds)} · Total: ${formatIntervalTime(summary.totalSeconds)}`
+      : `La configuración suma ${formatIntervalTime(summary.configuredWorkSeconds)} min y el tiempo de trabajo indicado es ${formatIntervalTime(summary.workSeconds)} min. Ajusta rondas o tiempos antes de continuar.`;
+  } catch (error) { output.textContent = error.message; }
+  if ($("btnApplyUserInterval")) $("btnApplyUserInterval").disabled = !valid;
 }
 
 function updateIntervalDurationSummary() {
@@ -3970,6 +4043,96 @@ function updateIntervalDurationSummary() {
   }
   if ($("btnSaveIntervalTimer")) $("btnSaveIntervalTimer").disabled = !valid;
   if ($("btnPreviewIntervalTimer")) $("btnPreviewIntervalTimer").disabled = !valid;
+}
+
+function renderIntervalTimeline(container, config, snapshot) {
+  if (!container) return;
+  const stages = window.FIT51IntervalTimer.getRemainingStages(config, snapshot, 120);
+  const visibleStages = stages;
+  const fragment = document.createDocumentFragment();
+  visibleStages.forEach(stage => {
+    const item = document.createElement("article");
+    item.className = `interval-timeline-item is-${stage.state}${stage.kind === "cooldown" ? " is-cooldown" : ""}`;
+    const marker = document.createElement("span");
+    marker.className = "interval-timeline-marker";
+    marker.setAttribute("aria-hidden", "true");
+    const body = document.createElement("div");
+    body.className = "interval-timeline-body";
+    const heading = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = stage.name;
+    const state = document.createElement("span");
+    state.className = "interval-timeline-state";
+    state.textContent = stage.state === "current" ? "AHORA" : stage.state === "next" ? "SIGUIENTE" : stage.kind === "cooldown" ? "FINAL" : `RONDA ${stage.round}`;
+    heading.append(name, state);
+    const detail = document.createElement("p");
+    detail.textContent = `${stage.intensity} · ${formatIntervalTime(stage.duration_seconds)}`;
+    body.append(heading, detail);
+    item.append(marker, body);
+    fragment.appendChild(item);
+  });
+  if (stages.omittedCount > 0) {
+    const summary = document.createElement("p");
+    summary.className = "interval-timeline-overflow";
+    summary.textContent = `${stages.omittedCount} fases posteriores permanecen programadas.`;
+    fragment.appendChild(summary);
+  }
+  container.replaceChildren(fragment);
+}
+
+const INTERVAL_INFO_TEXTS = Object.freeze({
+  work: "Es la duración total de la parte activa del entrenamiento. No incluye el enfriamiento.",
+  rounds: "Es el número de veces que se repetirá el conjunto completo de fases.",
+  phase: "Define el tipo de esfuerzo: Exhaustivo, Regenerativo u Otro.",
+  level: "Indica la intensidad de la fase en una escala de 0 a 20.",
+  phaseTime: "Es la duración de esta fase. Puede configurarse en segundos o minutos.",
+  cooldown: "Es la etapa final de recuperación después de completar todas las rondas.",
+  edit: "Permite ajustar únicamente tu sesión actual. No modifica la rutina original de tu entrenador.",
+  restore: "Vuelve a los tiempos, niveles y fases indicados originalmente por tu entrenador.",
+  timeline: "Muestra la fase actual y el orden de las fases que todavía faltan por completar."
+});
+
+function showIntervalInfo(key, trigger) {
+  const popover = $("intervalInfoPopover");
+  const text = INTERVAL_INFO_TEXTS[key];
+  if (!popover || !text) return;
+  $("intervalInfoText").textContent = text;
+  popover.classList.remove("hidden");
+  intervalInfoTrigger = trigger || null;
+  $("btnCloseIntervalInfo")?.focus();
+}
+
+function closeIntervalInfo() {
+  const popover = $("intervalInfoPopover");
+  if (!popover || popover.classList.contains("hidden")) return;
+  popover.classList.add("hidden");
+  intervalInfoTrigger?.focus();
+  intervalInfoTrigger = null;
+}
+
+function openUserIntervalEditor() {
+  if (!userIntervalRunner || userIntervalRunner.engine.status !== "idle" || !userIntervalSessionConfig) return;
+  resetUserIntervalEditor(userIntervalSessionConfig);
+  $("userIntervalEditor").classList.remove("hidden");
+  $("userIntervalRounds")?.focus();
+}
+
+function applyUserIntervalEditor() {
+  if (!userIntervalRunner || userIntervalRunner.engine.status !== "idle") return;
+  try {
+    const config = window.FIT51IntervalTimer.validateConfig(readUserIntervalConfigEditor());
+    installUserIntervalSession(config);
+    userIntervalEditorDirty = false;
+    $("userIntervalEditor").classList.add("hidden");
+  } catch (error) { alert(error.message); }
+}
+
+function restoreUserIntervalMasterConfig() {
+  if (!userIntervalMasterConfig || !userIntervalRunner || userIntervalRunner.engine.status !== "idle") return;
+  if (userIntervalEditorDirty && !window.confirm("¿Descartar los cambios temporales y restaurar la configuración del entrenador?")) return;
+  installUserIntervalSession(userIntervalMasterConfig);
+  resetUserIntervalEditor(userIntervalMasterConfig);
+  $("userIntervalEditor").classList.add("hidden");
 }
 
 function notifyIntervalEvent(type) {
@@ -4018,6 +4181,9 @@ function createIntervalRunner(config, elements) {
     elements.pause.disabled = !["running", "paused"].includes(snapshot.status);
     elements.pause.textContent = snapshot.status === "paused" ? "REANUDAR" : "PAUSAR";
     elements.finish.disabled = !["running", "paused"].includes(snapshot.status);
+    if (elements.edit) elements.edit.disabled = snapshot.status !== "idle";
+    if (elements.editor && snapshot.status !== "idle") elements.editor.classList.add("hidden");
+    if (elements.timeline) renderIntervalTimeline(elements.timeline, engine.config, snapshot);
   };
   const engine = new window.FIT51IntervalTimer.IntervalEngine(config, {
     onEvent(type, snapshot) {
@@ -4063,8 +4229,15 @@ function getUserIntervalElements() {
     finalCountdown: $("userIntervalFinalCountdown"), progress: $("userIntervalProgress"),
     next: $("userIntervalNext"), totalRemaining: $("userIntervalTotalRemaining"),
     status: $("userIntervalStatus"), start: $("btnUserIntervalStart"), pause: $("btnUserIntervalPause"),
-    finish: $("btnUserIntervalFinish")
+    finish: $("btnUserIntervalFinish"), edit: $("btnEditUserInterval"), editor: $("userIntervalEditor"),
+    timeline: $("userIntervalTimeline")
   };
+}
+
+function installUserIntervalSession(config) {
+  userIntervalRunner?.destroy();
+  userIntervalSessionConfig = cloneIntervalConfig(config);
+  userIntervalRunner = createIntervalRunner(userIntervalSessionConfig, getUserIntervalElements());
 }
 
 async function loadUserIntervalTimer() {
@@ -4076,15 +4249,17 @@ async function loadUserIntervalTimer() {
     userIntervalRunner?.destroy();
     userIntervalRunner = null;
     userIntervalConfigId = "";
+    userIntervalMasterConfig = null;
+    userIntervalSessionConfig = null;
     section.classList.add("hidden");
     return;
   }
   const stored = result.data[0];
   section.classList.remove("hidden");
   if (userIntervalRunner && userIntervalConfigId === stored.id) return;
-  userIntervalRunner?.destroy();
   userIntervalConfigId = stored.id;
-  userIntervalRunner = createIntervalRunner(stored, getUserIntervalElements());
+  userIntervalMasterConfig = cloneIntervalConfig(stored);
+  installUserIntervalSession(userIntervalMasterConfig);
 }
 
 function trainerPreviewElements(container) {
@@ -4490,7 +4665,7 @@ if ($("btnGoProfile")) {
     });
   }
 
-  ["intervalRounds", "intervalWorkDuration", "intervalWorkUnit", "intervalPhasesEditor", "intervalCooldownName", "intervalCooldownIntensity", "intervalCooldownDuration", "intervalCooldownUnit"]
+  ["intervalRounds", "intervalWorkDuration", "intervalWorkUnit", "intervalPhasesEditor", "intervalCooldownIntensity", "intervalCooldownDuration"]
     .forEach(id => $(id)?.addEventListener("input", updateIntervalDurationSummary));
   $("intervalWorkUnit")?.addEventListener("change", () => {
     $("intervalWorkDuration").max = $("intervalWorkUnit").value === "minutes" ? "30" : "1800";
@@ -4498,6 +4673,49 @@ if ($("btnGoProfile")) {
   });
   $("btnPreviewIntervalTimer")?.addEventListener("click", previewTrainerIntervalTimer);
   $("btnSaveIntervalTimer")?.addEventListener("click", saveTrainerIntervalTimer);
+
+  $("btnEditUserInterval")?.addEventListener("click", openUserIntervalEditor);
+  $("btnCloseUserIntervalEditor")?.addEventListener("click", () => $("userIntervalEditor")?.classList.add("hidden"));
+  $("btnApplyUserInterval")?.addEventListener("click", applyUserIntervalEditor);
+  $("btnRestoreUserInterval")?.addEventListener("click", restoreUserIntervalMasterConfig);
+  $("btnAddUserIntervalPhase")?.addEventListener("click", () => {
+    $("userIntervalPhasesEditor").appendChild(createIntervalPhaseEditor({ name: "Exhaustivo", intensity: "Nivel 0", duration_seconds: 30 }));
+    userIntervalEditorDirty = true;
+    updateUserIntervalDurationSummary();
+  });
+  $("userIntervalPhasesEditor")?.addEventListener("click", event => {
+    const remove = event.target.closest(".interval-phase-remove");
+    if (!remove) return;
+    const rows = $("userIntervalPhasesEditor").querySelectorAll(".interval-phase-editor");
+    if (rows.length <= 1) return alert("El cronómetro necesita al menos una fase");
+    remove.closest(".interval-phase-editor").remove();
+    userIntervalEditorDirty = true;
+    updateUserIntervalDurationSummary();
+  });
+  $("userIntervalPhasesEditor")?.addEventListener("change", event => {
+    const row = event.target.closest(".interval-phase-editor");
+    if (row && event.target.matches(".interval-phase-name-choice")) updateIntervalPhaseNameEditor(row);
+    if (row && event.target.matches(".interval-phase-unit")) updateIntervalPhaseDurationLimits(row);
+    userIntervalEditorDirty = true;
+    updateUserIntervalDurationSummary();
+  });
+  ["userIntervalRounds", "userIntervalWorkDuration", "userIntervalWorkUnit", "userIntervalPhasesEditor", "userIntervalCooldownIntensity", "userIntervalCooldownDuration"]
+    .forEach(id => $(id)?.addEventListener("input", () => {
+      userIntervalEditorDirty = true;
+      updateUserIntervalDurationSummary();
+    }));
+  $("userIntervalWorkUnit")?.addEventListener("change", () => {
+    $("userIntervalWorkDuration").max = $("userIntervalWorkUnit").value === "minutes" ? "30" : "1800";
+    userIntervalEditorDirty = true;
+    updateUserIntervalDurationSummary();
+  });
+
+  document.addEventListener("click", event => {
+    const info = event.target.closest("[data-interval-info]");
+    if (info) showIntervalInfo(info.dataset.intervalInfo, info);
+  });
+  $("btnCloseIntervalInfo")?.addEventListener("click", closeIntervalInfo);
+  document.addEventListener("keydown", event => { if (event.key === "Escape") closeIntervalInfo(); });
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;

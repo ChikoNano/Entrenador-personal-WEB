@@ -1319,7 +1319,209 @@ details[open] summary::after {
 }
 
 .interval-cooldown-editor {
-  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(90px, .7fr) minmax(110px, .8fr);
+  grid-template-columns: minmax(140px, 1fr) minmax(100px, .7fr) auto;
+  align-items: center;
+}
+
+.interval-cooldown-minutes > span {
+  color: var(--text-soft);
+  font-weight: 750;
+}
+
+.interval-field-help {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+}
+
+.interval-info-button {
+  display: inline-grid;
+  min-width: 32px;
+  min-height: 32px;
+  padding: .25rem .45rem;
+  place-items: center;
+  border: 1px solid rgba(255, 190, 0, .4);
+  border-radius: 999px;
+  background: rgba(255, 190, 0, .08);
+  color: var(--accent) !important;
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 850;
+}
+
+.interval-info-button:focus-visible {
+  outline: 3px solid rgba(255, 190, 0, .35);
+  outline-offset: 2px;
+}
+
+.interval-info-popover {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 1000;
+  width: min(360px, calc(100vw - 2rem));
+  padding: 1rem;
+  border: 1px solid rgba(255, 190, 0, .35);
+  border-radius: 16px;
+  background: #111419;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, .45);
+  color: #fff;
+}
+
+.interval-info-popover > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.interval-info-popover p {
+  margin: .75rem 0 0;
+  color: rgba(255, 255, 255, .78);
+  line-height: 1.5;
+}
+
+.interval-info-popover button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .1);
+  color: #fff !important;
+  cursor: pointer;
+  font-size: 1.25rem;
+}
+
+.interval-session-editor {
+  display: grid;
+  gap: .8rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 190, 0, .24);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .035);
+}
+
+.interval-session-editor label {
+  color: rgba(255, 255, 255, .82);
+  font-weight: 800;
+}
+
+.interval-timeline-section {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 255, 255, .1);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .025);
+}
+
+.interval-timeline-section h4 {
+  margin: 0;
+  color: #fff;
+  letter-spacing: .04em;
+}
+
+.interval-timeline {
+  max-height: min(44vh, 390px);
+  margin-top: .8rem;
+  padding-right: .3rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.interval-timeline-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: .65rem;
+  min-width: 0;
+}
+
+.interval-timeline-item:not(:last-of-type)::before {
+  content: "";
+  position: absolute;
+  top: 22px;
+  bottom: -4px;
+  left: 9px;
+  width: 2px;
+  background: rgba(255, 255, 255, .15);
+}
+
+.interval-timeline-marker {
+  position: relative;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  margin-top: .8rem;
+  border: 2px solid rgba(255, 255, 255, .4);
+  border-radius: 50%;
+  background: #111419;
+}
+
+.interval-timeline-body {
+  min-width: 0;
+  margin-bottom: .55rem;
+  padding: .72rem .8rem;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .035);
+}
+
+.interval-timeline-body > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .65rem;
+}
+
+.interval-timeline-body strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #fff;
+}
+
+.interval-timeline-body p {
+  margin: .3rem 0 0;
+  color: rgba(255, 255, 255, .65);
+  font-size: .84rem;
+}
+
+.interval-timeline-state {
+  flex: 0 0 auto;
+  color: rgba(255, 255, 255, .58);
+  font-size: .65rem;
+  font-weight: 900;
+  letter-spacing: .06em;
+}
+
+.interval-timeline-item.is-current .interval-timeline-marker {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: 0 0 0 5px rgba(255, 190, 0, .12);
+}
+
+.interval-timeline-item.is-current .interval-timeline-body {
+  border-color: rgba(255, 190, 0, .42);
+  background: rgba(255, 190, 0, .1);
+}
+
+.interval-timeline-item.is-current .interval-timeline-state,
+.interval-timeline-item.is-next .interval-timeline-state {
+  color: var(--accent);
+}
+
+.interval-timeline-item.is-cooldown .interval-timeline-marker {
+  border-style: double;
+}
+
+.interval-timeline-item.is-cooldown .interval-timeline-body {
+  background: rgba(92, 170, 255, .07);
+}
+
+.interval-timeline-overflow {
+  margin: .4rem 0 0 1.8rem;
+  color: rgba(255, 255, 255, .6);
+  font-size: .78rem;
 }
 
 .interval-phase-remove,
@@ -1338,7 +1540,8 @@ details[open] summary::after {
 .interval-secondary-btn {
   border: 1px solid rgba(255, 215, 0, .45);
   background: transparent;
-  color: var(--accent);
+  color: var(--accent) !important;
+  box-shadow: none;
 }
 
 .interval-duration-summary {
@@ -1453,7 +1656,7 @@ details[open] summary::after {
 .interval-controls .btn:disabled {
   background: #555;
   border-color: #555;
-  color: #aaa;
+  color: #aaa !important;
   cursor: not-allowed;
   opacity: .7;
 }
@@ -1481,8 +1684,40 @@ details[open] summary::after {
     width: 100%;
   }
 
+  .interval-cooldown-editor {
+    grid-template-columns: minmax(0, 1fr) minmax(88px, .7fr) auto;
+  }
+
+  .interval-current-phase {
+    min-height: 210px;
+    padding: 1rem .25rem;
+  }
+
+  .interval-countdown {
+    font-size: clamp(4rem, 21vw, 6.4rem);
+  }
+
+  .interval-timeline-section,
+  .interval-session-editor {
+    padding: .8rem;
+  }
+
   .interval-timer-meta {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 390px) {
+  .interval-cooldown-editor {
+    grid-template-columns: minmax(0, 1fr) minmax(0, .8fr);
+  }
+
+  .interval-cooldown-minutes > span {
+    grid-column: 1 / -1;
+  }
+
+  .interval-timer-card {
+    padding: .85rem;
   }
 }
 

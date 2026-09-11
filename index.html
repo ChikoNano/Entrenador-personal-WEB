@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Entrenador Físico - Plataforma</title>
-  <link rel="stylesheet" href="styles.css?v=20260909-interval-timer-v1">
+  <link rel="stylesheet" href="styles.css?v=20260911-session-ux">
 </head>
 <body class="auth-routing">
 
@@ -498,11 +498,45 @@
         <p><span>Próximo</span><strong id="userIntervalNext">—</strong></p>
         <p><span>Tiempo total restante</span><strong id="userIntervalTotalRemaining">00:00</strong></p>
       </div>
+      <section class="interval-timeline-section" aria-labelledby="userIntervalTimelineTitle">
+        <div class="interval-config-heading">
+          <h4 id="userIntervalTimelineTitle">TU ENTRENAMIENTO</h4>
+          <button class="interval-info-button" type="button" data-interval-info="timeline" aria-label="Información sobre fases restantes">ⓘ</button>
+        </div>
+        <div id="userIntervalTimeline" class="interval-timeline" aria-live="polite"></div>
+      </section>
       <p id="userIntervalStatus" class="interval-status" aria-live="polite">Listo para iniciar</p>
       <div class="interval-controls">
         <button id="btnUserIntervalStart" class="btn" type="button">INICIAR</button>
         <button id="btnUserIntervalPause" class="btn interval-secondary-btn" type="button" disabled>PAUSAR</button>
         <button id="btnUserIntervalFinish" class="btn interval-danger-btn" type="button" disabled>TERMINAR</button>
+        <button id="btnEditUserInterval" class="btn interval-secondary-btn" type="button">EDITAR SESIÓN</button>
+        <button class="interval-info-button" type="button" data-interval-info="edit" aria-label="Información sobre editar sesión">ⓘ</button>
+      </div>
+      <div id="userIntervalEditor" class="interval-session-editor hidden">
+        <div class="interval-config-heading"><h4>Editar sesión actual</h4><button id="btnCloseUserIntervalEditor" class="interval-small-btn" type="button" aria-label="Cerrar edición de sesión">Cerrar</button></div>
+        <label for="userIntervalRounds">Rondas <button class="interval-info-button" type="button" data-interval-info="rounds" aria-label="Información sobre rondas">ⓘ</button></label>
+        <input id="userIntervalRounds" type="number" min="1" max="999" value="1">
+        <label for="userIntervalWorkDuration">Tiempo de trabajo <button class="interval-info-button" type="button" data-interval-info="work" aria-label="Información sobre tiempo de trabajo">ⓘ</button></label>
+        <div class="interval-work-time-editor">
+          <input id="userIntervalWorkDuration" type="number" min="1" max="30" value="1" aria-label="Duración del tiempo de trabajo temporal">
+          <select id="userIntervalWorkUnit" aria-label="Unidad del tiempo de trabajo temporal"><option value="seconds">Segundos</option><option value="minutes" selected>Minutos</option></select>
+        </div>
+        <div class="interval-config-heading"><h4>Fases</h4><div><button class="interval-info-button" type="button" data-interval-info="phase" aria-label="Información sobre fases">ⓘ</button> <button id="btnAddUserIntervalPhase" class="btn interval-small-btn" type="button">Agregar fase</button></div></div>
+        <div class="interval-field-help"><button class="interval-info-button" type="button" data-interval-info="level" aria-label="Información sobre nivel">ⓘ Nivel</button><button class="interval-info-button" type="button" data-interval-info="phaseTime" aria-label="Información sobre tiempo de fase">ⓘ Tiempo</button></div>
+        <div id="userIntervalPhasesEditor"></div>
+        <label for="userIntervalCooldownIntensity">Enfriamiento <button class="interval-info-button" type="button" data-interval-info="cooldown" aria-label="Información sobre enfriamiento">ⓘ</button></label>
+        <div class="interval-phase-editor interval-cooldown-editor interval-cooldown-minutes">
+          <select id="userIntervalCooldownIntensity" aria-label="Nivel del enfriamiento temporal"></select>
+          <input id="userIntervalCooldownDuration" type="number" min="1" max="30" value="5" aria-label="Minutos de enfriamiento temporal">
+          <span>Minutos</span>
+        </div>
+        <div id="userIntervalDurationSummary" class="interval-duration-summary" aria-live="polite"></div>
+        <div class="interval-config-actions">
+          <button id="btnApplyUserInterval" class="btn" type="button">APLICAR A ESTA SESIÓN</button>
+          <button id="btnRestoreUserInterval" class="btn interval-secondary-btn" type="button">RESTAURAR CONFIGURACIÓN DEL ENTRENADOR</button>
+          <button class="interval-info-button" type="button" data-interval-info="restore" aria-label="Información sobre restaurar configuración">ⓘ</button>
+        </div>
       </div>
     </section>
   </main>
@@ -629,10 +663,10 @@
     <details class="interval-config-card" open>
       <summary><strong>Cronómetro de intervalos</strong></summary>
       <div class="interval-config-form">
-        <label for="intervalRounds">Número de rondas</label>
+        <label for="intervalRounds">Número de rondas <button class="interval-info-button" type="button" data-interval-info="rounds" aria-label="Información sobre rondas">ⓘ</button></label>
         <input id="intervalRounds" type="number" min="1" max="999" value="1">
 
-        <label for="intervalWorkDuration">Tiempo de trabajo</label>
+        <label for="intervalWorkDuration">Tiempo de trabajo <button class="interval-info-button" type="button" data-interval-info="work" aria-label="Información sobre tiempo de trabajo">ⓘ</button></label>
         <div class="interval-work-time-editor">
           <input id="intervalWorkDuration" type="number" min="1" max="30" value="1" aria-label="Duración del tiempo de trabajo">
           <select id="intervalWorkUnit" aria-label="Unidad del tiempo de trabajo">
@@ -642,20 +676,17 @@
         </div>
 
         <div class="interval-config-heading">
-          <h4>Fases</h4>
+          <h4>Fases <button class="interval-info-button" type="button" data-interval-info="phase" aria-label="Información sobre fases">ⓘ</button></h4>
           <button id="btnAddIntervalPhase" class="btn interval-small-btn" type="button">Agregar fase</button>
         </div>
         <div id="intervalPhasesEditor"></div>
 
-        <h4>Enfriamiento final</h4>
-        <div class="interval-phase-editor interval-cooldown-editor">
-          <input id="intervalCooldownName" type="text" value="Enfriamiento" aria-label="Nombre del enfriamiento">
-          <input id="intervalCooldownIntensity" type="text" placeholder="Nivel 5" aria-label="Nivel del enfriamiento">
-          <input id="intervalCooldownDuration" type="number" min="0" value="5" aria-label="Duración del enfriamiento">
-          <select id="intervalCooldownUnit" aria-label="Unidad del enfriamiento">
-            <option value="seconds">Segundos</option>
-            <option value="minutes" selected>Minutos</option>
-          </select>
+        <div class="interval-field-help"><button class="interval-info-button" type="button" data-interval-info="level" aria-label="Información sobre nivel">ⓘ Nivel</button><button class="interval-info-button" type="button" data-interval-info="phaseTime" aria-label="Información sobre tiempo de fase">ⓘ Tiempo</button></div>
+        <h4>Enfriamiento final <button class="interval-info-button" type="button" data-interval-info="cooldown" aria-label="Información sobre enfriamiento">ⓘ</button></h4>
+        <div class="interval-phase-editor interval-cooldown-editor interval-cooldown-minutes">
+          <select id="intervalCooldownIntensity" aria-label="Nivel del enfriamiento"></select>
+          <input id="intervalCooldownDuration" type="number" min="1" max="30" value="5" aria-label="Minutos de enfriamiento">
+          <span>Minutos</span>
         </div>
 
         <div id="intervalDurationSummary" class="interval-duration-summary" aria-live="polite"></div>
@@ -906,9 +937,14 @@
   <script src="js/supabase-progress.js?v=20260728"></script>
   <script src="js/supabase-storage.js?v=20260728"></script>
   <script src="js/migration-localstorage.js?v=20260728"></script>
-  <script src="js/interval-timer.js?v=20260909-v1"></script>
+  <div id="intervalInfoPopover" class="interval-info-popover hidden" role="dialog" aria-modal="false" aria-labelledby="intervalInfoTitle">
+    <div><strong id="intervalInfoTitle">Información</strong><button id="btnCloseIntervalInfo" type="button" aria-label="Cerrar información">×</button></div>
+    <p id="intervalInfoText"></p>
+  </div>
+
+  <script src="js/interval-timer.js?v=20260911-session-ux"></script>
   <script src="js/supabase-interval-timers.js?v=20260909-v1"></script>
-  <script src="app.js?v=20260909-interval-timer-v1"></script>
+  <script src="app.js?v=20260911-session-ux"></script>
 
 </body>
 </html>

@@ -8,6 +8,7 @@ const root = path.join(__dirname, "..");
 const coreSource = fs.readFileSync(path.join(root, "js", "interval-timer.js"), "utf8");
 const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
 const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+const styles = fs.readFileSync(path.join(root, "styles.css"), "utf8");
 const service = fs.readFileSync(path.join(root, "js", "supabase-interval-timers.js"), "utf8");
 const migration = fs.readFileSync(path.join(root, "supabase", "interval-timer-config-v1.sql"), "utf8");
 const workTimeMigration = fs.readFileSync(path.join(root, "supabase", "interval-timer-work-time-v1.sql"), "utf8");
@@ -163,7 +164,7 @@ test("cada fase usa selector Regenerativo, Exhaustivo u Otro", () => {
 
 test("el nivel de fase es un selector cerrado de Nivel 0 a Nivel 20", () => {
   assert.match(appSource, /intensity\.className = "interval-phase-intensity"/);
-  assert.match(appSource, /for \(let level = 0; level <= 20; level \+= 1\)/);
+  assert.match(appSource, /Array\.from\(\{ length: 21 \}/);
   assert.match(appSource, /option\.value = `Nivel \$\{level\}`/);
   assert.doesNotMatch(appSource, /\["text", "interval-phase-intensity"/);
 });
@@ -205,12 +206,123 @@ test("convierte minutos a segundos para cálculos y persistencia", () => {
   assert.equal(context.intervalDurationToSeconds(5, "minutes"), 300);
 });
 
-test("el usuario sólo recibe controles de ejecución y no edita la configuración", () => {
-  const section = html.match(/<section id="userIntervalTimerSection"[\s\S]*?<\/section>/)?.[0] || "";
+test("el usuario conserva controles de ejecución y obtiene edición temporal", () => {
+  const start = html.indexOf('<section id="userIntervalTimerSection"');
+  const section = html.slice(start, html.indexOf("</main>", start));
   assert.match(section, /btnUserIntervalStart/);
   assert.match(section, /btnUserIntervalPause/);
   assert.match(section, /btnUserIntervalFinish/);
-  assert.doesNotMatch(section, /<input|<select|btnAddIntervalPhase/);
+  assert.match(section, /btnEditUserInterval/);
+  assert.match(section, /userIntervalEditor/);
+  assert.match(section, /btnApplyUserInterval/);
+});
+
+test("la configuración temporal no escribe interval_timer_configs ni altera la maestra", () => {
+  const start = appSource.indexOf("function applyUserIntervalEditor");
+  const end = appSource.indexOf("function restoreUserIntervalMasterConfig", start);
+  const applySource = appSource.slice(start, end);
+  assert.match(applySource, /installUserIntervalSession\(config\)/);
+  assert.doesNotMatch(applySource, /TrainerSupabase|saveForRoutine|interval_timer_configs|localStorage/);
+  assert.match(appSource, /userIntervalMasterConfig = cloneIntervalConfig\(stored\)/);
+  assert.match(appSource, /userIntervalSessionConfig = cloneIntervalConfig\(config\)/);
+  assert.match(appSource, /btnApplyUserInterval"\)\) \$\("btnApplyUserInterval"\)\.disabled = !valid/);
+  assert.match(appSource, /validateConfig\(readUserIntervalConfigEditor\(\)\)/);
+});
+
+test("restaurar descarta cambios temporales y recupera la receta del entrenador", () => {
+  const start = appSource.indexOf("function restoreUserIntervalMasterConfig");
+  const end = appSource.indexOf("function notifyIntervalEvent", start);
+  const restoreSource = appSource.slice(start, end);
+  assert.match(restoreSource, /window\.confirm\("¿Descartar los cambios temporales/);
+  assert.match(restoreSource, /installUserIntervalSession\(userIntervalMasterConfig\)/);
+  assert.match(restoreSource, /resetUserIntervalEditor\(userIntervalMasterConfig\)/);
+});
+
+test("recargar vuelve a obtener Supabase y no restaura cambios temporales", () => {
+  const start = appSource.indexOf("async function loadUserIntervalTimer");
+  const end = appSource.indexOf("function trainerPreviewElements", start);
+  const loadSource = appSource.slice(start, end);
+  assert.match(loadSource, /intervalTimers\.listOwnActive\(\)/);
+  assert.match(loadSource, /userIntervalMasterConfig = cloneIntervalConfig\(stored\)/);
+  assert.doesNotMatch(loadSource, /localStorage|saveForRoutine/);
+});
+
+test("timeline conserva orden, estado actual, siguiente y enfriamiento final", () => {
+  const timer = loadCore();
+  const engine = new timer.IntervalEngine(sample());
+  const initial = engine.snapshot(0);
+  const initialStages = timer.getRemainingStages(sample(), initial);
+  assert.deepEqual(Array.from(initialStages, stage => stage.name), ["Exhaustivo", "Regenerativo", "Exhaustivo", "Regenerativo", "Enfriamiento"]);
+  assert.deepEqual(Array.from(initialStages.slice(0, 3), stage => stage.state), ["current", "next", "pending"]);
+  assert.equal(initialStages.at(-1).kind, "cooldown");
+  const afterFirst = timer.getRemainingStages(sample(), engine.start(0) && engine.tick(30000));
+  assert.equal(afterFirst[0].name, "Regenerativo");
+  assert.equal(afterFirst[0].state, "current");
+  assert.equal(afterFirst[1].name, "Exhaustivo");
+  assert.equal(afterFirst[1].state, "next");
+  assert.doesNotMatch(afterFirst.map(stage => stage.name).join(","), /^Exhaustivo,/);
+});
+
+test("timeline funciona en múltiples rondas sin alterar el motor timestamp-based", () => {
+  const timer = loadCore();
+  const config = sample({ rounds: 20, work_seconds: 1200 });
+  const engine = new timer.IntervalEngine(config);
+  engine.start(0);
+  const snapshot = engine.tick(180000);
+  const stages = timer.getRemainingStages(config, snapshot, 12);
+  assert.equal(snapshot.round, 4);
+  assert.equal(stages[0].state, "current");
+  assert.equal(stages.at(-1).kind, "cooldown");
+  assert.ok(stages.omittedCount > 0);
+  assert.equal(engine.tick(180000).remainingSeconds, snapshot.remainingSeconds);
+});
+
+test("edición queda bloqueada durante ejecución y pausa; terminar permanece operativo", () => {
+  assert.match(appSource, /elements\.edit\.disabled = snapshot\.status !== "idle"/);
+  assert.match(appSource, /elements\.finish\.onclick/);
+  const timer = loadCore();
+  const engine = new timer.IntervalEngine(sample());
+  engine.start(0);
+  assert.equal(engine.pause(10000).status, "paused");
+  assert.equal(engine.resume(20000).status, "running");
+  assert.equal(engine.finish(25000).status, "finished");
+});
+
+test("botones informativos son accesibles y contienen todos los textos aprobados", () => {
+  assert.match(html, /data-interval-info="work"[^>]*aria-label/);
+  assert.match(html, /data-interval-info="timeline"[^>]*aria-label/);
+  assert.match(html, /id="btnCloseIntervalInfo"[^>]*aria-label/);
+  [
+    "Es la duración total de la parte activa del entrenamiento. No incluye el enfriamiento.",
+    "Es el número de veces que se repetirá el conjunto completo de fases.",
+    "Define el tipo de esfuerzo: Exhaustivo, Regenerativo u Otro.",
+    "Indica la intensidad de la fase en una escala de 0 a 20.",
+    "Permite ajustar únicamente tu sesión actual. No modifica la rutina original de tu entrenador.",
+    "Vuelve a los tiempos, niveles y fases indicados originalmente por tu entrenador."
+  ].forEach(text => assert.match(appSource, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
+  assert.match(appSource, /event\.key === "Escape"/);
+});
+
+test("enfriamiento se captura sólo en minutos, entre 1 y 30", () => {
+  assert.doesNotMatch(html, /intervalCooldownUnit|userIntervalCooldownUnit/);
+  assert.match(html, /id="intervalCooldownDuration"[^>]*min="1"[^>]*max="30"/);
+  assert.match(html, /id="userIntervalCooldownDuration"[^>]*min="1"[^>]*max="30"/);
+  const start = appSource.indexOf("function intervalCooldownMinutesToSeconds");
+  const end = appSource.indexOf("function updateIntervalPhaseDurationLimits", start);
+  const context = {};
+  vm.createContext(context);
+  vm.runInContext(appSource.slice(start, end), context);
+  assert.equal(context.intervalCooldownMinutesToSeconds(1), 60);
+  assert.equal(context.intervalCooldownMinutesToSeconds(30), 1800);
+  assert.ok(Number.isNaN(context.intervalCooldownMinutesToSeconds(0)));
+  assert.ok(Number.isNaN(context.intervalCooldownMinutesToSeconds(31)));
+});
+
+test("la pantalla mobile evita overflow y mantiene timeline compacto", () => {
+  assert.match(styles, /\.interval-timeline\s*\{[\s\S]*?max-height:[\s\S]*?overflow-y: auto/);
+  assert.match(styles, /\.interval-timeline-item\s*\{[\s\S]*?min-width: 0/);
+  assert.match(styles, /@media \(max-width: 390px\)/);
+  assert.match(styles, /width: min\(360px, calc\(100vw - 2rem\)\)/);
 });
 
 test("la rutina diaria del entrenador permanece primero sin eliminar opciones secundarias", () => {
