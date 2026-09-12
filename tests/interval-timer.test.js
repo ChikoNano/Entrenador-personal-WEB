@@ -242,7 +242,7 @@ test("recargar vuelve a obtener Supabase y no restaura cambios temporales", () =
   const start = appSource.indexOf("async function loadUserIntervalTimer");
   const end = appSource.indexOf("function trainerPreviewElements", start);
   const loadSource = appSource.slice(start, end);
-  assert.match(loadSource, /intervalTimers\.listOwnActive\(\)/);
+  assert.match(loadSource, /const stored = access\.data\.config/);
   assert.match(loadSource, /userIntervalMasterConfig = cloneIntervalConfig\(stored\)/);
   assert.doesNotMatch(loadSource, /localStorage|saveForRoutine/);
 });
@@ -323,6 +323,38 @@ test("la pantalla mobile evita overflow y mantiene timeline compacto", () => {
   assert.match(styles, /\.interval-timeline-item\s*\{[\s\S]*?min-width: 0/);
   assert.match(styles, /@media \(max-width: 390px\)/);
   assert.match(styles, /width: min\(360px, calc\(100vw - 2rem\)\)/);
+});
+
+test("los editores de fases conservan controles legibles entre 360 y 430 px", () => {
+  assert.match(styles, /\.interval-phase-editor:not\(\.interval-cooldown-editor\)[\s\S]*?grid-template-columns: minmax\(76px, \.7fr\) minmax\(132px, 1\.3fr\)/);
+  assert.match(styles, /@media \(max-width: 767px\)/);
+  assert.match(styles, /grid-template-areas:[\s\S]*?"phase phase"[\s\S]*?"level level"[\s\S]*?"duration unit"[\s\S]*?"remove remove"/);
+  assert.match(styles, /\.interval-phase-name-choice \{ grid-area: phase; \}/);
+  assert.match(styles, /\.interval-phase-intensity \{ grid-area: level; \}/);
+  assert.match(styles, /\.interval-phase-duration \{ grid-area: duration; \}/);
+  assert.match(styles, /\.interval-phase-unit \{ grid-area: unit; \}/);
+  assert.match(styles, /\.interval-phase-remove\s*\{[\s\S]*?grid-area: remove;[\s\S]*?width: 100%;[\s\S]*?min-height: 48px/);
+  assert.match(styles, /#intervalPhasesEditor,[\s\S]*?#userIntervalPhasesEditor,[\s\S]*?\.interval-phase-editor > \*[\s\S]*?min-width: 0/);
+});
+
+test("tablet y desktop usan distribuciones de fases legibles", () => {
+  assert.match(styles, /@media \(min-width: 768px\) and \(max-width: 1023px\)[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)[\s\S]*?"phase phase level level"[\s\S]*?"duration unit remove remove"/);
+  assert.match(styles, /@media \(min-width: 1024px\)[\s\S]*?grid-template-columns: minmax\(180px, 2fr\) minmax\(130px, 1fr\) minmax\(100px, \.8fr\) minmax\(140px, 1fr\) auto/);
+  assert.match(styles, /"phase level duration unit remove"/);
+  assert.match(styles, /#adminPage,[\s\S]*?#exercisePage,[\s\S]*?#intervalTimerPage,[\s\S]*?#dashboardPage\s*\{[\s\S]*?max-width: 1080px/);
+});
+
+test("Editar sesión aparece antes de los controles principales y no depende del breakpoint", () => {
+  const sectionStart = html.indexOf('id="userIntervalTimerSection"');
+  const sectionEnd = html.indexOf("</main>", sectionStart);
+  const section = html.slice(sectionStart, sectionEnd);
+  const edit = section.indexOf('id="btnEditUserInterval"');
+  const controls = section.indexOf('class="interval-controls"');
+  assert.ok(edit >= 0);
+  assert.ok(controls > edit);
+  assert.equal((section.match(/id="btnEditUserInterval"/g) || []).length, 1);
+  assert.match(styles, /\.interval-edit-action\s*\{[\s\S]*?display: flex;[\s\S]*?width: 100%/);
+  assert.doesNotMatch(styles, /@media[^}]*\{[^}]*#btnEditUserInterval[^}]*display:\s*none/s);
 });
 
 test("la rutina diaria del entrenador permanece primero sin eliminar opciones secundarias", () => {

@@ -22,11 +22,13 @@
         .maybeSingle());
     },
 
-    listOwnActive() {
-      return run("intervalTimers:listOwnActive", client => client.from("interval_timer_configs")
-        .select("id, routine_id, rounds, work_seconds, phases, cooldown, active, updated_at, routines!inner(user_id, active)")
+    findForRoutines(routineIds) {
+      const ids = Array.isArray(routineIds) ? routineIds.filter(id => uuidPattern.test(id || "")) : [];
+      if (!ids.length) return Promise.resolve(ns.ok([]));
+      return run("intervalTimers:findForRoutines", client => client.from("interval_timer_configs")
+        .select("id, routine_id, rounds, work_seconds, phases, cooldown, active, updated_at")
+        .in("routine_id", ids)
         .eq("active", true)
-        .eq("routines.active", true)
         .order("updated_at", { ascending: false })
         .limit(1));
     },

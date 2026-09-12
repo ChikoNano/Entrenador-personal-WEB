@@ -17,6 +17,7 @@ let userIntervalMasterConfig = null;
 let userIntervalSessionConfig = null;
 let userIntervalEditorDirty = false;
 let intervalInfoTrigger = null;
+let userIntervalAccessRequest = 0;
 let trainerIntervalRunner = null;
 let selectedTrainerIntervalRoutineId = "";
 let trainerIntervalLoadedUserId = "";
@@ -405,6 +406,7 @@ function goToPage(pageId) {
     "questionnairePage",
     "profilePage",
     "exercisePage",
+    "intervalTimerPage",
     "adminPage",
     "physioPage"
   ];
@@ -416,6 +418,7 @@ function goToPage(pageId) {
   if ($(pageId)) $(pageId).classList.remove("hidden");
   document.body.classList.toggle("admin-panel-active", pageId === "adminPage");
   syncMobilePrimaryNavigation(pageId);
+  if (pageId === "intervalTimerPage") void loadUserIntervalTimer();
 }
 
 function showPasswordSetupMessage(message, type = "error") {
@@ -622,7 +625,7 @@ function syncMobilePrimaryNavigation(pageId) {
   if (!navigation) return;
 
   const isUserSession = localStorage.getItem("currentUser") && localStorage.getItem("currentRole") === "user";
-  const isApplicationPage = ["dashboardPage", "profilePage", "exercisePage", "physioPage"].includes(pageId);
+  const isApplicationPage = ["dashboardPage", "profilePage", "exercisePage", "intervalTimerPage", "physioPage"].includes(pageId);
   navigation.classList.toggle("hidden", !(isUserSession && isApplicationPage));
 
   navigation.querySelectorAll("[data-mobile-page]").forEach(button => {
@@ -635,8 +638,11 @@ function syncMobilePrimaryNavigation(pageId) {
 
 function navigateToRoutine() {
   renderUserExercises();
-  loadUserIntervalTimer();
   goToPage("exercisePage");
+}
+
+function navigateToIntervalTimer() {
+  goToPage("intervalTimerPage");
 }
 
 function navigateToProfile() {
@@ -4240,21 +4246,50 @@ function installUserIntervalSession(config) {
   userIntervalRunner = createIntervalRunner(userIntervalSessionConfig, getUserIntervalElements());
 }
 
+function showUserIntervalAccessState(title, message) {
+  const state = $("intervalTimerPendingState");
+  if (state) state.classList.remove("hidden");
+  if ($("intervalTimerPendingTitle")) $("intervalTimerPendingTitle").textContent = title;
+  if ($("intervalTimerPendingMessage")) $("intervalTimerPendingMessage").textContent = message;
+}
+
+function blockUserIntervalTimer(title, message) {
+  userIntervalRunner?.destroy();
+  userIntervalRunner = null;
+  userIntervalConfigId = "";
+  userIntervalMasterConfig = null;
+  userIntervalSessionConfig = null;
+  $("userIntervalTimerSection")?.classList.add("hidden");
+  $("userIntervalEditor")?.classList.add("hidden");
+  if ($("btnUserIntervalStart")) $("btnUserIntervalStart").disabled = true;
+  if ($("btnEditUserInterval")) $("btnEditUserInterval").disabled = true;
+  showUserIntervalAccessState(title, message);
+}
+
 async function loadUserIntervalTimer() {
   const section = $("userIntervalTimerSection");
-  if (!section || !window.TrainerSupabase?.isConfigured()) return;
-  const result = await window.TrainerSupabase.intervalTimers.listOwnActive();
-  if (result.error || !(result.data || []).length) {
-    if (result.error) console.error("[Cronómetro] No se pudo cargar la configuración:", result.error.message);
-    userIntervalRunner?.destroy();
-    userIntervalRunner = null;
-    userIntervalConfigId = "";
-    userIntervalMasterConfig = null;
-    userIntervalSessionConfig = null;
-    section.classList.add("hidden");
+  if (!section) return;
+  const requestId = ++userIntervalAccessRequest;
+  blockUserIntervalTimer("Verificando rutina de cardio", "Estamos comprobando tu asignación actual.");
+  if (!window.TrainerSupabase?.isConfigured?.() || !window.TrainerSupabase?.routines?.getOwnCardioAccess) {
+    blockUserIntervalTimer("Rutina de cardio pendiente", "No pudimos verificar tu rutina de cardio en este momento. Inténtalo nuevamente.");
     return;
   }
-  const stored = result.data[0];
+  const access = await window.TrainerSupabase.routines.getOwnCardioAccess();
+  if (requestId !== userIntervalAccessRequest) return;
+  if (access.error) {
+    blockUserIntervalTimer("Rutina de cardio pendiente", "No pudimos verificar tu rutina de cardio en este momento. Inténtalo nuevamente.");
+    return;
+  }
+  if (!access.data?.allowed) {
+    blockUserIntervalTimer(
+      "Rutina de cardio pendiente",
+      "Tu entrenador aún no ha asignado tu rutina de cardio. Cuando esté disponible podrás acceder al cronómetro desde aquí."
+    );
+    return;
+  }
+  const stored = access.data.config;
+  $("intervalTimerPendingState")?.classList.add("hidden");
   section.classList.remove("hidden");
   if (userIntervalRunner && userIntervalConfigId === stored.id) return;
   userIntervalConfigId = stored.id;
@@ -4308,17 +4343,22 @@ async function loadTrainerIntervalConfig(force = false) {
     $("intervalConfigMessage").classList.remove("hidden");
     return;
   }
-  const routine = (routinesResult.data || [])[0];
-  if (!routine) return resetIntervalConfigEditor();
-  selectedTrainerIntervalRoutineId = routine.id;
-  const configResult = await window.TrainerSupabase.intervalTimers.getForRoutine(routine.id);
+  const activeRoutines = (routinesResult.data || []).filter(item => item.active !== false);
+  const routine = activeRoutines.find(item => item.routine_type === "cardio");
+  selectedTrainerIntervalRoutineId = routine?.id || "";
+  const configResult = routine
+    ? await window.TrainerSupabase.intervalTimers.getForRoutine(routine.id)
+    : await window.TrainerSupabase.intervalTimers.findForRoutines(
+      activeRoutines.filter(item => item.routine_type === "general").map(item => item.id)
+    );
   if (getSelectedUserId() !== userId) return;
   if (configResult.error) {
     $("intervalConfigMessage").textContent = "No se pudo cargar el cronómetro asignado.";
     $("intervalConfigMessage").classList.remove("hidden");
     return;
   }
-  resetIntervalConfigEditor(configResult.data || null);
+  const config = routine ? configResult.data : (configResult.data || [])[0];
+  resetIntervalConfigEditor(config || null);
 }
 
 async function saveTrainerIntervalTimer() {
@@ -4339,7 +4379,7 @@ async function saveTrainerIntervalTimer() {
   try {
     let routineId = selectedTrainerIntervalRoutineId;
     if (!routineId) {
-      const routineResult = await window.TrainerSupabase.routines.getOrCreateActiveRoutine(userId);
+      const routineResult = await window.TrainerSupabase.routines.getOrCreateActiveCardioRoutine(userId);
       if (routineResult.error) return alert(`No se pudo preparar la rutina: ${routineResult.error.message}`);
       routineId = routineResult.data.id;
     }
@@ -4403,6 +4443,7 @@ document.addEventListener("DOMContentLoaded", async () => {
  if (window.TrainerSupabase?.isConfigured()) ensureSupabaseAuthStateListener();
  const passwordSetupFlowActive = await initializePasswordSetupFlow();
  document.body.classList.remove("auth-routing");
+ $("userIntervalTimerMount")?.appendChild($("userIntervalTimerSection"));
 
  document.addEventListener("click", event => {
   const passwordToggle = event.target.closest("[data-password-toggle]");
@@ -4426,6 +4467,10 @@ document.addEventListener("DOMContentLoaded", async () => {
 
  if ($("cardWorkout")) {
   $("cardWorkout").addEventListener("click", navigateToRoutine);
+}
+
+if ($("cardIntervalTimer")) {
+  $("cardIntervalTimer").addEventListener("click", navigateToIntervalTimer);
 }
 
 if ($("subscriptionFilter")) {
@@ -4465,6 +4510,7 @@ if ($("mobilePrimaryNav")) {
 
     const actions = {
       exercisePage: navigateToRoutine,
+      intervalTimerPage: navigateToIntervalTimer,
       profilePage: navigateToProfile,
       physioPage: navigateToTherapies
     };
@@ -4614,6 +4660,8 @@ if ($("btnGoProfile")) {
   if ($("btnAssignExerciseToUser")) {
     $("btnAssignExerciseToUser").addEventListener("click", assignExerciseToUser);
   }
+
+  $("btnBackFromIntervalTimer")?.addEventListener("click", navigateToRoutine);
 
   if ($("selectedUserAssignments")) {
     $("selectedUserAssignments").addEventListener("click", event => {

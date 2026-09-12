@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Entrenador Físico - Plataforma</title>
-  <link rel="stylesheet" href="styles.css?v=20260911-session-ux">
+  <link rel="stylesheet" href="styles.css?v=20260911-cardio-type">
 </head>
 <body class="auth-routing">
 
@@ -234,6 +234,12 @@
       <span>🏋️</span>
       <h3>Rutina</h3>
       <p>Entrenamiento del día</p>
+    </article>
+
+    <article class="dashboard-card" id="cardIntervalTimer">
+      <span>⏱️</span>
+      <h3>Cronómetro</h3>
+      <p>Entrenamiento de cardio</p>
     </article>
 
     <article class="dashboard-card" id="cardProfile">
@@ -506,12 +512,14 @@
         <div id="userIntervalTimeline" class="interval-timeline" aria-live="polite"></div>
       </section>
       <p id="userIntervalStatus" class="interval-status" aria-live="polite">Listo para iniciar</p>
+      <div class="interval-edit-action">
+        <button id="btnEditUserInterval" class="btn interval-secondary-btn" type="button">EDITAR SESIÓN</button>
+        <button class="interval-info-button" type="button" data-interval-info="edit" aria-label="Información sobre editar sesión">ⓘ</button>
+      </div>
       <div class="interval-controls">
         <button id="btnUserIntervalStart" class="btn" type="button">INICIAR</button>
         <button id="btnUserIntervalPause" class="btn interval-secondary-btn" type="button" disabled>PAUSAR</button>
         <button id="btnUserIntervalFinish" class="btn interval-danger-btn" type="button" disabled>TERMINAR</button>
-        <button id="btnEditUserInterval" class="btn interval-secondary-btn" type="button">EDITAR SESIÓN</button>
-        <button class="interval-info-button" type="button" data-interval-info="edit" aria-label="Información sobre editar sesión">ⓘ</button>
       </div>
       <div id="userIntervalEditor" class="interval-session-editor hidden">
         <div class="interval-config-heading"><h4>Editar sesión actual</h4><button id="btnCloseUserIntervalEditor" class="interval-small-btn" type="button" aria-label="Cerrar edición de sesión">Cerrar</button></div>
@@ -545,6 +553,16 @@
   <footer class="routine-footer">
     <button class="btn" id="btnBackToProfile">Anterior</button>
   </footer>
+</div>
+
+<div class="container hidden" id="intervalTimerPage">
+  <div id="intervalTimerPendingState" class="interval-access-state hidden" role="status">
+    <span aria-hidden="true">⏱️</span>
+    <h1 id="intervalTimerPendingTitle">Rutina de cardio pendiente</h1>
+    <p id="intervalTimerPendingMessage">Tu entrenador aún no ha asignado tu rutina de cardio. Cuando esté disponible podrás acceder al cronómetro desde aquí.</p>
+  </div>
+  <div id="userIntervalTimerMount"></div>
+  <div class="btn-row"><button id="btnBackFromIntervalTimer" class="btn interval-secondary-btn" type="button">Volver a mi rutina</button></div>
 </div>
 
 <div class="container hidden" id="adminPage">
@@ -661,7 +679,7 @@
     </details>
 
     <details class="interval-config-card" open>
-      <summary><strong>Cronómetro de intervalos</strong></summary>
+      <summary><strong>Rutina de cardio</strong></summary>
       <div class="interval-config-form">
         <label for="intervalRounds">Número de rondas <button class="interval-info-button" type="button" data-interval-info="rounds" aria-label="Información sobre rondas">ⓘ</button></label>
         <input id="intervalRounds" type="number" min="1" max="999" value="1">
@@ -892,6 +910,10 @@
       <span class="mobile-nav-icon" aria-hidden="true">👤</span>
       <span class="mobile-nav-label">Perfil</span>
     </button>
+    <button class="mobile-primary-nav-item" type="button" data-mobile-page="intervalTimerPage" aria-label="Abrir Cronómetro">
+      <span class="mobile-nav-icon" aria-hidden="true">⏱️</span>
+      <span class="mobile-nav-label">Cronómetro</span>
+    </button>
     <button class="mobile-primary-nav-item" type="button" data-mobile-page="physioPage" aria-label="Abrir Terapias">
       <span class="mobile-nav-icon" aria-hidden="true">🧘</span>
       <span class="mobile-nav-label">Terapias</span>
@@ -932,7 +954,7 @@
   <script src="js/supabase-questionnaires.js?v=20260728"></script>
   <script src="js/supabase-legal.js?v=20260828"></script>
   <script src="js/supabase-exercises.js?v=20260728"></script>
-  <script src="js/supabase-routines.js?v=20260831-routine-dedup"></script>
+  <script src="js/supabase-routines.js?v=20260911-cardio-type"></script>
   <script src="js/supabase-subscriptions.js?v=20260728"></script>
   <script src="js/supabase-progress.js?v=20260728"></script>
   <script src="js/supabase-storage.js?v=20260728"></script>
@@ -943,8 +965,8 @@
   </div>
 
   <script src="js/interval-timer.js?v=20260911-session-ux"></script>
-  <script src="js/supabase-interval-timers.js?v=20260909-v1"></script>
-  <script src="app.js?v=20260911-session-ux"></script>
+  <script src="js/supabase-interval-timers.js?v=20260911-cardio-type"></script>
+  <script src="app.js?v=20260911-cardio-type"></script>
 
 </body>
 </html>

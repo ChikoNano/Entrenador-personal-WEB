@@ -42,7 +42,7 @@
     listUserRoutines(userId) {
       if (!userId) return Promise.resolve(ns.fail("ID obligatorio", "listUserRoutines"));
       return run("listUserRoutines", client => client.from("routines")
-        .select("id, name, user_id, trainer_id, active, created_at, routine_exercises(id, exercise_id, week_number, day_name, sets, repetitions, rest_seconds, notes, display_order, exercises(title, media_type, media_url, category, active))")
+        .select("id, name, user_id, trainer_id, routine_type, active, created_at, routine_exercises(id, exercise_id, week_number, day_name, sets, repetitions, rest_seconds, notes, display_order, exercises(title, media_type, media_url, category, active))")
         .eq("user_id", userId).eq("active", true).order("created_at"));
     },
     async listOwnActiveRoutines() {
@@ -51,9 +51,75 @@
       const userId = authData?.user?.id;
       if (authError || !userId) return ns.fail(authError || "Sesión requerida", "listOwnActiveRoutines:auth");
       const result = await run("listOwnActiveRoutines", db => db.from("routines")
-        .select("id, name, user_id, active, routine_exercises(id, exercise_id, week_number, day_name, sets, repetitions, rest_seconds, notes, display_order, exercises(title, media_type, media_url, category, active))")
+        .select("id, name, user_id, routine_type, active, routine_exercises(id, exercise_id, week_number, day_name, sets, repetitions, rest_seconds, notes, display_order, exercises(title, media_type, media_url, category, active))")
         .eq("user_id", userId).eq("active", true).order("created_at"));
       return result.error ? result : ns.ok({ userId, routines: result.data || [] });
+    },
+    async getOwnCardioAccess() {
+      try {
+        const client = ns.requireClient();
+        const { data: authData, error: authError } = await client.auth.getUser();
+        const userId = authData?.user?.id;
+        if (authError || !userId) return ns.fail(authError || "Sesión requerida", "getOwnCardioAccess:auth");
+
+        const routineResult = await client.from("routines")
+          .select("id, name, user_id, routine_type, active")
+          .eq("user_id", userId)
+          .eq("routine_type", "cardio")
+          .eq("active", true)
+          .limit(1)
+          .maybeSingle();
+        if (routineResult.error) return ns.fail(routineResult.error, "getOwnCardioAccess:routine");
+        if (!routineResult.data) return ns.ok({ allowed: false, reason: "NO_CARDIO_ROUTINE", routine: null, config: null });
+
+        const configResult = await client.from("interval_timer_configs")
+          .select("id, routine_id, rounds, work_seconds, phases, cooldown, active, updated_at")
+          .eq("routine_id", routineResult.data.id)
+          .eq("active", true)
+          .maybeSingle();
+        if (configResult.error) return ns.fail(configResult.error, "getOwnCardioAccess:config");
+        if (!configResult.data) {
+          return ns.ok({ allowed: false, reason: "NO_ACTIVE_CONFIG", routine: routineResult.data, config: null });
+        }
+        return ns.ok({ allowed: true, reason: "ALLOWED", routine: routineResult.data, config: configResult.data });
+      } catch (error) {
+        return ns.fail(error, "getOwnCardioAccess");
+      }
+    },
+    async getOrCreateActiveCardioRoutine(userId) {
+      if (!uuidPattern.test(userId || "")) return ns.fail("Usuario inválido", "getOrCreateActiveCardioRoutine");
+      const client = ns.requireClient();
+      const { data: authData, error: authError } = await client.auth.getUser();
+      if (authError || !authData?.user?.id) {
+        return ns.fail(authError || "Sesión requerida", "getOrCreateActiveCardioRoutine:auth");
+      }
+      const findActive = () => client.from("routines")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("routine_type", "cardio")
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle();
+      const existing = await findActive();
+      if (existing.error) return ns.fail(existing.error, "getOrCreateActiveCardioRoutine:lookup");
+      if (existing.data) return ns.ok(existing.data);
+
+      const created = await client.from("routines").insert({
+        user_id: userId,
+        trainer_id: authData.user.id,
+        name: "Rutina de cardio",
+        routine_type: "cardio",
+        start_date: new Date().toISOString().slice(0, 10),
+        active: true
+      }).select().single();
+      if (!created.error) return ns.ok(created.data);
+      if (created.error.code !== "23505") {
+        return ns.fail(created.error, "getOrCreateActiveCardioRoutine:create");
+      }
+      const concurrent = await findActive();
+      return concurrent.error || !concurrent.data
+        ? ns.fail(concurrent.error || "No se pudo recuperar la rutina de cardio", "getOrCreateActiveCardioRoutine:race")
+        : ns.ok(concurrent.data);
     },
     async getOrCreateActiveRoutine(userId) {
       if (!uuidPattern.test(userId || "")) return ns.fail("Usuario inválido", "getOrCreateActiveRoutine");
@@ -123,8 +189,6 @@
           display_order: displayOrder || 0
         }));
 
-        console.log("Filas semanales a insertar:", rows);
-
         const supabase = ns.requireClient();
         const existing = await supabase
           .from("routine_exercises")
@@ -155,7 +219,6 @@
           );
         }
 
-        console.log("Filas creadas en Supabase:", data);
         return ns.ok(data);
       } catch (error) {
         return ns.fail(error, "syncExerciseAcrossFourWeeks:validation");

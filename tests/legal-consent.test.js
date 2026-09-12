@@ -140,8 +140,8 @@ test("regresión integrada: siete preguntas conducen al consentimiento sin compl
 });
 
 test("producción invalida el bundle anterior del flujo de cuestionario", () => {
-  assert.match(html, /styles\.css\?v=20260911-session-ux/);
-  assert.match(html, /app\.js\?v=20260911-session-ux/);
+  assert.match(html, /styles\.css\?v=20260911-cardio-type/);
+  assert.match(html, /app\.js\?v=20260911-cardio-type/);
   assert.doesNotMatch(html, /(?:styles\.css|app\.js)\?v=20260731/);
 });
 

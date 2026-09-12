@@ -59,6 +59,8 @@ create table if not exists public.routines (
   id uuid primary key default gen_random_uuid(), user_id uuid not null references public.profiles(id) on delete cascade,
   trainer_id uuid not null references public.profiles(id) on delete restrict,
   name text not null, description text, start_date date, end_date date,
+  routine_type text not null default 'general'
+    constraint routines_type_check check (routine_type in ('general','cardio')),
   active boolean not null default true,
   created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
   constraint routine_dates check (end_date is null or start_date is null or end_date >= start_date)
@@ -152,6 +154,9 @@ end $$;
 
 create index if not exists profiles_trainer_idx on public.profiles(trainer_id);
 create index if not exists routines_user_idx on public.routines(user_id, active);
+create index if not exists routines_user_active_type_idx on public.routines(user_id, active, routine_type);
+create unique index if not exists routines_one_active_cardio_per_user_idx
+  on public.routines(user_id) where active = true and routine_type = 'cardio';
 create index if not exists routine_exercises_lookup_idx on public.routine_exercises(routine_id, week_number, day_name, display_order);
 create index if not exists subscriptions_user_idx on public.subscriptions(user_id, expiration_date desc);
 create index if not exists completions_user_idx on public.exercise_completions(user_id, completed_at desc);
