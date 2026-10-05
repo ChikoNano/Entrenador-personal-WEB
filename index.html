@@ -70,6 +70,9 @@
 
     <p class="password-setup-message hidden" id="passwordSetupMessage" role="alert" aria-live="polite"></p>
     <button class="btn" id="btnCreatePassword" type="button" disabled>Crear contraseña</button>
+    <button type="button" id="btnRequestNewAccessLink" class="forgot-password-link">
+      Solicitar nuevo enlace de acceso
+    </button>
   </div>
 
   <!-- CUESTIONARIO -->
@@ -615,6 +618,9 @@
       >
         ❌
       </button>
+      <button class="btn" id="btnResendUserAccess" type="button" style="width:auto;">
+        Reenviar acceso
+      </button>
     </div>
 
     <hr style="margin:14px 0; opacity:.2">
@@ -966,7 +972,7 @@
 
   <script src="js/interval-timer.js?v=20260911-session-ux"></script>
   <script src="js/supabase-interval-timers.js?v=20260911-cardio-type"></script>
-  <script src="app.js?v=20260911-cardio-type"></script>
+  <script src="app.js?v=20260911-cardio-type&first-access=20261004"></script>
 
 </body>
 </html>

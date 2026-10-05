@@ -29,17 +29,23 @@ const initialSupabaseAuthCallback = (() => {
   const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   const type = query.get("type") || hash.get("type");
   const errorDescription = query.get("error_description") || hash.get("error_description");
+  const errorCode = query.get("error_code") || hash.get("error_code") || query.get("error") || hash.get("error");
   return {
     type,
-    active: ["invite", "recovery"].includes(type) || query.has("code") || hash.has("access_token") || Boolean(errorDescription),
-    errorDescription
+    active: ["invite", "recovery"].includes(type) || query.has("code") || hash.has("access_token") || Boolean(errorDescription) || Boolean(errorCode),
+    errorDescription,
+    errorCode
   };
 })();
 const TEMPORARY_AUTH_FLOW_KEY = "traineros_temporary_auth_flow";
+const AUTH_CALLBACK_SESSION_WAIT_MS = 8000;
 let authCallbackFlowActive =
   initialSupabaseAuthCallback.active ||
   localStorage.getItem(TEMPORARY_AUTH_FLOW_KEY) === "true";
 let isCompletingPasswordSetup = false;
+let authCallbackSession = null;
+let authCallbackSessionWaiter = null;
+let passwordSetupInitializationPromise = null;
 
 
 const defaultUsers = {
@@ -429,6 +435,72 @@ function showPasswordSetupMessage(message, type = "error") {
   if (type === "success") element.classList.add("success");
 }
 
+function clearPasswordSetupMessage() {
+  const element = $("passwordSetupMessage");
+  if (!element) return;
+  element.textContent = "";
+  element.classList.add("hidden");
+  element.classList.remove("success");
+}
+
+function isTemporaryAuthConnectionError(error) {
+  return /failed to fetch|network|conexi[oó]n|timeout|load failed|offline/i.test(error?.message || String(error || ""));
+}
+
+function getPasswordSetupErrorMessage(error, phase = "callback") {
+  const message = error?.message || String(error || "");
+  const code = error?.code || error?.error_code || "";
+  if (isTemporaryAuthConnectionError(error)) {
+    return "No pudimos conectar con el servicio de acceso. Revisa tu conexión e inténtalo nuevamente.";
+  }
+  if (/weak.?password|password.*(?:short|strength)|same_password/i.test(`${code} ${message}`)) {
+    return "La contraseña no cumple los requisitos de seguridad. Usa al menos 8 caracteres y evita contraseñas fáciles de adivinar.";
+  }
+  if (/expired|invalid.*(?:token|otp|link)|otp_expired|access_denied/i.test(`${code} ${message}`)) {
+    return "El enlace ya no es válido o expiró. Solicita un nuevo enlace de acceso.";
+  }
+  if (phase === "password") {
+    return "No pudimos establecer la contraseña. Inténtalo nuevamente o solicita un nuevo enlace de acceso.";
+  }
+  return "No pudimos completar la autenticación del enlace. Solicita un nuevo enlace o inténtalo más tarde.";
+}
+
+function enablePasswordSetupForSession(session, mode = passwordSetupMode) {
+  if (!session?.user?.id) return false;
+  authCallbackSession = session;
+  authCallbackFlowActive = true;
+  localStorage.setItem(TEMPORARY_AUTH_FLOW_KEY, "true");
+  configurePasswordSetupView(mode);
+  goToPage("passwordSetupPage");
+  clearPasswordSetupMessage();
+  const button = $("btnCreatePassword");
+  if (button) button.disabled = false;
+  $("newAccountPassword")?.focus();
+  if (authCallbackSessionWaiter) {
+    authCallbackSessionWaiter(session);
+    authCallbackSessionWaiter = null;
+  }
+  return true;
+}
+
+function waitForAuthCallbackSession() {
+  if (authCallbackSession?.user?.id) return Promise.resolve(authCallbackSession);
+  return new Promise(resolve => {
+    let settled = false;
+    let timeoutId = null;
+    const finish = session => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (authCallbackSessionWaiter === finish) authCallbackSessionWaiter = null;
+      resolve(session || null);
+    };
+    timeoutId = window.setTimeout(() => finish(null), AUTH_CALLBACK_SESSION_WAIT_MS);
+    authCallbackSessionWaiter = finish;
+    if (authCallbackSession?.user?.id) finish(authCallbackSession);
+  });
+}
+
 function togglePasswordVisibility(button) {
   const input = $(button?.dataset.passwordToggle);
   if (!input) return;
@@ -493,34 +565,84 @@ async function requestPasswordRecovery() {
   alert("Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.");
 }
 
+async function resendSelectedUserAccess() {
+  const email = getSelectedUserEmail();
+  const button = $("btnResendUserAccess");
+  if (!email) {
+    alert("Selecciona un usuario");
+    return;
+  }
+  if (!window.TrainerSupabase?.isConfigured()) {
+    alert("No se pudo enviar el enlace de acceso. Inténtalo más tarde.");
+    return;
+  }
+  if (!confirm(`¿Enviar un nuevo enlace de acceso a ${email}?`)) return;
+
+  if (button) button.disabled = true;
+  try {
+    const result = await window.TrainerSupabase.auth.resetPassword(
+      email,
+      window.TrainerSupabase.getAppUrl()
+    );
+    if (result.error) {
+      console.error("No se pudo solicitar un nuevo enlace de acceso.");
+      alert(isTemporaryAuthConnectionError(result.error)
+        ? "No pudimos conectar con el servicio de acceso. Inténtalo nuevamente."
+        : "No se pudo enviar el nuevo enlace de acceso. Inténtalo más tarde.");
+      return;
+    }
+    alert("Si la cuenta está registrada, recibirá un nuevo enlace para establecer su contraseña. No se modificaron sus datos ni su suscripción.");
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function initializePasswordSetupFlow() {
+  if (passwordSetupInitializationPromise) return passwordSetupInitializationPromise;
   if (!initialSupabaseAuthCallback.active) return false;
 
-  authCallbackFlowActive = true;
-  localStorage.setItem(TEMPORARY_AUTH_FLOW_KEY, "true");
-  configurePasswordSetupView(initialSupabaseAuthCallback.type === "recovery" ? "recovery" : passwordSetupMode);
-  goToPage("passwordSetupPage");
-  const button = $("btnCreatePassword");
-  if (button) button.disabled = true;
+  passwordSetupInitializationPromise = (async () => {
+    authCallbackFlowActive = true;
+    localStorage.setItem(TEMPORARY_AUTH_FLOW_KEY, "true");
+    const callbackMode = initialSupabaseAuthCallback.type === "recovery" ? "recovery" : "invite";
+    configurePasswordSetupView(callbackMode);
+    goToPage("passwordSetupPage");
+    const button = $("btnCreatePassword");
+    if (button) button.disabled = true;
 
-  if (!window.TrainerSupabase?.isConfigured()) {
-    showPasswordSetupMessage("Supabase no está configurado. Solicita un nuevo enlace al entrenador.");
-    return true;
-  }
-  if (initialSupabaseAuthCallback.errorDescription) {
-    showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
-    return true;
-  }
+    if (!window.TrainerSupabase?.isConfigured()) {
+      showPasswordSetupMessage("El servicio de acceso no está disponible temporalmente. Inténtalo más tarde.");
+      return true;
+    }
+    if (initialSupabaseAuthCallback.errorDescription) {
+      showPasswordSetupMessage(getPasswordSetupErrorMessage({
+        message: initialSupabaseAuthCallback.errorDescription,
+        code: initialSupabaseAuthCallback.errorCode
+      }));
+      return true;
+    }
 
-  const { data, error } = await window.TrainerSupabase.getClient().auth.getSession();
-  if (error || !data?.session) {
-    showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
-    return true;
-  }
+    const { data, error } = await window.TrainerSupabase.getClient().auth.getSession();
+    if (data?.session) {
+      enablePasswordSetupForSession(data.session, callbackMode);
+      return true;
+    }
+    if (error && isTemporaryAuthConnectionError(error)) {
+      showPasswordSetupMessage(getPasswordSetupErrorMessage(error));
+      return true;
+    }
 
-  if (button) button.disabled = false;
-  $("newAccountPassword")?.focus();
-  return true;
+    showPasswordSetupMessage("Estamos verificando tu enlace de acceso…", "success");
+    const delayedSession = await waitForAuthCallbackSession();
+    if (delayedSession?.user?.id) {
+      enablePasswordSetupForSession(delayedSession, callbackMode);
+      return true;
+    }
+
+    showPasswordSetupMessage(getPasswordSetupErrorMessage(error));
+    return true;
+  })();
+  return passwordSetupInitializationPromise;
 }
 
 function clearTemporarySupabaseAuthState() {
@@ -579,13 +701,13 @@ async function createInvitedUserPassword() {
     const client = window.TrainerSupabase.getClient();
     const { data: sessionData, error: sessionError } = await client.auth.getSession();
     if (sessionError || !sessionData?.session) {
-      showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
+      showPasswordSetupMessage(getPasswordSetupErrorMessage(sessionError));
       return;
     }
 
     const { data, error } = await client.auth.updateUser({ password });
     if (error || !data?.user) {
-      showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
+      showPasswordSetupMessage(getPasswordSetupErrorMessage(error, "password"));
       return;
     }
 
@@ -609,8 +731,8 @@ async function createInvitedUserPassword() {
     if ($("emailInput")) $("emailInput").value = data.user.email || "";
     $("passwordInput")?.focus();
     return;
-  } catch {
-    showPasswordSetupMessage("El enlace no es válido o ha expirado. Solicita uno nuevo.");
+  } catch (error) {
+    showPasswordSetupMessage(getPasswordSetupErrorMessage(error, "password"));
   } finally {
     isCompletingPasswordSetup = false;
     button.disabled = false;
@@ -1254,22 +1376,13 @@ function ensureSupabaseAuthStateListener() {
 
   const authListener = window.TrainerSupabase.auth.onAuthStateChange((event, session) => {
     if (event === "PASSWORD_RECOVERY") {
-      authCallbackFlowActive = true;
-      localStorage.setItem(TEMPORARY_AUTH_FLOW_KEY, "true");
-      configurePasswordSetupView("recovery");
-      goToPage("passwordSetupPage");
-      if ($("btnCreatePassword")) $("btnCreatePassword").disabled = false;
-      $("newAccountPassword")?.focus();
+      enablePasswordSetupForSession(session, "recovery");
       return;
     }
 
-    if (
-      authCallbackFlowActive ||
-      isCompletingPasswordSetup ||
-      event === "USER_UPDATED"
-    ) {
-      if (authCallbackFlowActive && session?.user?.id) {
-        goToPage("passwordSetupPage");
+    if (authCallbackFlowActive || isCompletingPasswordSetup || event === "USER_UPDATED") {
+      if (authCallbackFlowActive && event === "SIGNED_IN" && session?.user?.id) {
+        enablePasswordSetupForSession(session);
       }
       return;
     }
@@ -4535,12 +4648,20 @@ if ($("btnGoProfile")) {
     $("btnDeleteUser").addEventListener("click", deleteSelectedUser);
   }
 
+  if ($("btnResendUserAccess")) {
+    $("btnResendUserAccess").addEventListener("click", resendSelectedUserAccess);
+  }
+
   if ($("btnLogin")) {
     $("btnLogin").addEventListener("click", login);
   }
 
   if ($("btnForgotPassword")) {
     $("btnForgotPassword").addEventListener("click", requestPasswordRecovery);
+  }
+
+  if ($("btnRequestNewAccessLink")) {
+    $("btnRequestNewAccessLink").addEventListener("click", requestPasswordRecovery);
   }
 
   if ($("btnCreatePassword")) {

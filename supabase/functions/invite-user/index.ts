@@ -83,7 +83,7 @@ Deno.serve(async (request) => {
       console.error("[invite-user] Actor sin permisos:", { actorId: authData.user.id, role: actor?.role, active: actor?.active });
       return failure("Solo un administrador o entrenador activo puede invitar usuarios", 403);
     }
-    console.info("[invite-user] Actor autenticado:", { actorId: actor.id, role: actor.role });
+    console.info("[invite-user] Actor autorizado");
 
     let payload: Record<string, unknown>;
     try { payload = await request.json(); }
@@ -107,15 +107,13 @@ Deno.serve(async (request) => {
     if (expirationDate < startDate)
       return failure("La fecha de vencimiento no puede ser anterior al inicio", 400);
 
-    console.info("[invite-user] Correo a invitar:", email);
+    console.info("[invite-user] Solicitud de invitación validada");
     const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       redirectTo: siteUrl,
       data: { full_name: fullName, invited_by: actor.id },
     });
-    console.info("[invite-user] inviteUserByEmail data:", inviteData);
-    console.info("[invite-user] inviteUserByEmail error:", inviteError);
     if (inviteError) {
-      console.error("[invite-user] Supabase Auth rechazó la invitación:", inviteError.message);
+      console.error("[invite-user] Supabase Auth rechazó la invitación");
       return failure(inviteError.message, inviteErrorStatus(inviteError.message));
     }
     const userId = inviteData?.user?.id;
@@ -127,7 +125,7 @@ Deno.serve(async (request) => {
     const cleanupAuthUser = async () => {
       const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
       if (error) console.error("[invite-user] Falló la limpieza del usuario Auth:", error.message);
-      else console.info("[invite-user] Usuario Auth eliminado durante rollback:", userId);
+      else console.info("[invite-user] Usuario Auth eliminado durante rollback");
       return error?.message || null;
     };
 
@@ -135,7 +133,7 @@ Deno.serve(async (request) => {
       id: userId, email, full_name: fullName,
       role: "user", trainer_id: actor.id, active: true,
     }).select("id").single();
-    console.info("[invite-user] Creación de profile:", { profileId: profile?.id || null, error: profileError?.message || null });
+    console.info("[invite-user] Creación de profile completada:", Boolean(profile?.id) && !profileError);
     if (profileError || profile?.id !== userId) {
       console.error("[invite-user] No se confirmó el profile:", profileError?.message || "ID ausente");
       const cleanupError = await cleanupAuthUser();
@@ -146,7 +144,7 @@ Deno.serve(async (request) => {
       user_id: userId, plan_type: planType, start_date: startDate,
       expiration_date: expirationDate, status: "active", created_by: actor.id,
     }).select("id").single();
-    console.info("[invite-user] Creación de subscription:", { subscriptionId: subscription?.id || null, error: subscriptionError?.message || null });
+    console.info("[invite-user] Creación de subscription completada:", Boolean(subscription?.id) && !subscriptionError);
     if (subscriptionError || !subscription?.id) {
       console.error("[invite-user] No se confirmó la subscription:", subscriptionError?.message || "ID ausente");
       const cleanupError = await cleanupAuthUser();
